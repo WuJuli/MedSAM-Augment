@@ -67,6 +67,8 @@ class MedSamDataset(Dataset):
         image_data = cv2.imread(image_file)
         # read mask as gray scale
         mask_data = cv2.imread(mask_file, cv2.IMREAD_GRAYSCALE)
+        # print(image_data.shape, mask_data.shape)
+        # (464, 449, 3)(464, 449)
 
         return self._preprocess(image_data, mask_data)
 
@@ -85,6 +87,10 @@ class MedSamDataset(Dataset):
         mask = TF.resize(mask, self.image_size, antialias=True)
 
         bbox = self._get_bbox(mask)
+        # print(image.shape, mask.shape, bbox.shape)
+        # torch.Size([3, 256, 256])
+        # torch.Size([1, 256, 256])
+        # torch.Size([4])
 
         return image, mask, bbox
 

@@ -17,7 +17,10 @@ from torch.utils.tensorboard import SummaryWriter
 
 from segment_anything import sam_model_registry
 from segment_anything.utils.transforms import ResizeLongestSide
+# for 2D dataset
 from utils.dataset import MedSamDataset
+# for 3D dataset
+# from utils.dataset3D import MedSamDataset
 
 
 def dice_score(preds, targets):
@@ -36,15 +39,15 @@ class TrainMedSam:
     BEST_EPOCH = 0
 
     def __init__(
-        self,
-        lr: float = 3e-4,
-        batch_size: int = 4,
-        epochs: int = 100,
-        device: str = "cuda:0",
-        model_type: str = "vit_b",
-        image_dir="data/image_dir",
-        mask_dir="data/image_dir",
-        checkpoint: str = "work_dir/SAM/sam_vit_b_01ec64.pth",
+            self,
+            lr: float = 3e-4,
+            batch_size: int = 4,
+            epochs: int = 100,
+            device: str = "cuda:0",
+            model_type: str = "vit_b",
+            image_dir="data/Tr_npy/npy_embs",
+            mask_dir="data/Tr_npy/npy_gts",
+            checkpoint: str = "work_dir/SAM/sam_vit_b_01ec64.pth",
     ):
         self.lr = lr
         self.batch_size = batch_size
@@ -147,14 +150,14 @@ class TrainMedSam:
             box_tensor = torch.as_tensor(box, dtype=torch.float, device=self.device)
 
             # Get predictioin mask
-
-            image_embeddings = model.image_encoder(image)  # (B,256,64,64)
-
-            sparse_embeddings, dense_embeddings = model.prompt_encoder(
-                points=None,
-                boxes=box_tensor,
-                masks=None,
-            )
+            with torch.inference_mode():
+                image_embeddings = model.image_encoder(image)  # (B,256,64,64)
+    
+                sparse_embeddings, dense_embeddings = model.prompt_encoder(
+                    points=None,
+                    boxes=box_tensor,
+                    masks=None,
+                )
 
             mask_predictions, _ = model.mask_decoder(
                 image_embeddings=image_embeddings.to(self.device),  # (B, 256, 64, 64)
@@ -264,6 +267,7 @@ class TrainMedSam:
             for image, mask, bbox in progress_bar:
                 image = image.to(self.device)
                 mask = mask.to(self.device)
+                print(image.shape, mask.shape, bbox.shape)
                 # resize image to 1024 by 1024
                 image = TF.resize(image, (1024, 1024), antialias=True)
                 H, W = mask.shape[-2], mask.shape[-1]
@@ -273,6 +277,7 @@ class TrainMedSam:
 
                 # Get predictioin mask
                 with torch.inference_mode():
+                    print(image.shape, 'img')
                     image_embeddings = model.image_encoder(image)  # (B,256,64,64)
 
                     sparse_embeddings, dense_embeddings = model.prompt_encoder(
@@ -303,7 +308,7 @@ class TrainMedSam:
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
-                progress_bar.set_description(f"Epoch {epoch+1}/{self.epochs}")
+                progress_bar.set_description(f"Epoch {epoch + 1}/{self.epochs}")
                 progress_bar.set_postfix(
                     loss=np.mean(epoch_loss), dice=np.mean(epoch_dice)
                 )
@@ -346,16 +351,16 @@ class TrainMedSam:
         if not os.path.exists(save_path):
             os.mkdir(save_path)
 
-        print(f"[INFO:] Saving model to {os.path.join(save_path,model_name)}")
+        print(f"[INFO:] Saving model to {os.path.join(save_path, model_name)}")
         torch.save(model.state_dict(), os.path.join(save_path, model_name))
 
     def early_stopping(
-        self,
-        model,
-        val_loss: float,
-        epoch: int,
-        patience: int = 10,
-        min_delta: int = 0.001,
+            self,
+            model,
+            val_loss: float,
+            epoch: int,
+            patience: int = 10,
+            min_delta: int = 0.001,
     ):
         """Helper function for model training early stopping
         Args:
@@ -375,8 +380,8 @@ class TrainMedSam:
             return False
 
         if (
-            self.BEST_VAL_LOSS - val_loss < min_delta
-            and epoch - self.BEST_EPOCH >= patience
+                self.BEST_VAL_LOSS - val_loss < min_delta
+                and epoch - self.BEST_EPOCH >= patience
         ):
             return True
         return False
@@ -384,15 +389,15 @@ class TrainMedSam:
 
 class CrossValidate(TrainMedSam):
     def __init__(
-        self,
-        lr: float = 3e-4,
-        batch_size: int = 4,
-        epochs: int = 100,
-        device: str = "cuda:0",
-        model_type: str = "vit_b",
-        image_dir="data/image_dir",
-        mask_dir="data/image_dir",
-        checkpoint: str = "work_dir/SAM/sam_vit_b_01ec64.pth",
+            self,
+            lr: float = 3e-4,
+            batch_size: int = 4,
+            epochs: int = 100,
+            device: str = "cuda:0",
+            model_type: str = "vit_b",
+            image_dir="data/image_dir",
+            mask_dir="data/image_dir",
+            checkpoint: str = "work_dir/SAM/sam_vit_b_01ec64.pth",
     ):
         super().__init__(
             lr=lr,
@@ -429,7 +434,7 @@ class CrossValidate(TrainMedSam):
         return fold_scores
 
 
-def main():
+if __name__ == '__main__':
     # set up parser
     parser = argparse.ArgumentParser()
 
@@ -458,10 +463,10 @@ def main():
         help="Path to the ground truth mask directory",
     )
     parser.add_argument(
-        "--num_epochs", type=int, required=False, default=100, help="number of epochs"
+        "--num_epochs", type=int, required=False, default=10, help="number of epochs"
     )
     parser.add_argument(
-        "--lr", type=float, required=False, default=3e-4, help="learning rate"
+        "--lr", type=float, required=False, default=1e-4, help="learning rate"
     )
     parser.add_argument(
         "--batch_size", type=int, required=False, default=4, help="batch size"
@@ -473,9 +478,10 @@ def main():
         required=False,
         help="Number of folds for cross validation",
     )
-    parser.add_argument("--model_type", type=str, required="False", default="vit_b")
+    parser.add_argument("--model_type", default="vit_b", type=str, required=False)
     parser.add_argument(
-        "--checkpoint", type=str, required=True, help="Path to SAM checkpoint"
+        "--checkpoint", default="work_dir/SAM/sam_vit_b_01ec64.pth", type=str,
+        help="Path to SAM checkpoint"
     )
 
     args = parser.parse_args()
@@ -524,7 +530,3 @@ def main():
         )
 
         train(train_df, test_df, val_df, args.image_col, args.mask_col)
-
-
-if __name__ == "__main__":
-    main()

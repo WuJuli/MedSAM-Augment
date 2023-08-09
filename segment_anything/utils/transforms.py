@@ -29,7 +29,7 @@ class ResizeLongestSide:
         """
         target_size = self.get_preprocess_shape(image.shape[0], image.shape[1], self.target_length)
         return np.array(resize(to_pil_image(image), target_size))
-    
+
     def apply_coords(self, coords: np.ndarray, original_size: Tuple[int, ...]) -> np.ndarray:
         """
         Expects a numpy array of length 2 in the final dimension. Requires the
@@ -41,7 +41,6 @@ class ResizeLongestSide:
         new_coords[..., 0] = coords[..., 0] * (new_w / old_w)
         new_coords[..., 1] = coords[..., 1] * (new_h / old_h)
         return new_coords
-
 
     def apply_boxes(self, boxes: np.ndarray, original_size: Tuple[int, ...]) -> np.ndarray:
         """
@@ -64,7 +63,7 @@ class ResizeLongestSide:
         )
 
     def apply_coords_torch(
-        self, coords: torch.Tensor, original_size: Tuple[int, ...]
+            self, coords: torch.Tensor, original_size: Tuple[int, ...]
     ) -> torch.Tensor:
         """
         Expects a torch tensor with length 2 in the last dimension. Requires the
@@ -80,7 +79,7 @@ class ResizeLongestSide:
         return coords
 
     def apply_boxes_torch(
-        self, boxes: torch.Tensor, original_size: Tuple[int, ...]
+            self, boxes: torch.Tensor, original_size: Tuple[int, ...]
     ) -> torch.Tensor:
         """
         Expects a torch tensor with shape Bx4. Requires the original image

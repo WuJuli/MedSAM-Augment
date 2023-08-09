@@ -4,8 +4,17 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+from .prompt_encoder import PromptEncoder
+from .transformer import TwoWayTransformer
+
+# for sam baseline
 from .sam import Sam
 from .image_encoder import ImageEncoderViT
 from .mask_decoder import MaskDecoder
-from .prompt_encoder import PromptEncoder
-from .transformer import TwoWayTransformer
+from .tiny_vit_sam import TinyViT
+
+# for sam HQ
+# from .sam_hq import Sam
+# from .image_encoder_hq import ImageEncoderViT
+# from .mask_decoder_hq import MaskDecoder
+# from .tiny_vit_sam_hq import TinyViT

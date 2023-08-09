@@ -20,14 +20,14 @@ parser.add_argument(
     "-i",
     "--img_path",
     type=str,
-    default="data/MedSAMDemo_2D/train/images",
+    default="data/DRIVE_training/images",
     help="path to the images",
 )
 parser.add_argument(
     "-gt",
     "--gt_path",
     type=str,
-    default="data/MedSAMDemo_2D/train/labels",
+    default="data/DRIVE_training/1st_manual",
     help="path to the ground truth (gt)",
 )
 
@@ -42,18 +42,18 @@ parser.add_argument(
     "-o",
     "--npz_path",
     type=str,
-    default="data/demo2D",
+    default="data/DRIVE_training/npz_result",
     help="path to save the npz files",
 )
 parser.add_argument(
     "--data_name",
     type=str,
-    default="demo2d",
+    default="DRIVE",
     help="dataset name; used to name the final npz file, e.g., demo2d.npz",
 )
 parser.add_argument("--image_size", type=int, default=256, help="image size")
 parser.add_argument(
-    "--img_name_suffix", type=str, default=".png", help="image name suffix"
+    "--img_name_suffix", type=str, default=".tif", help="image name suffix"
 )
 parser.add_argument("--label_id", type=int, default=255, help="label id")
 parser.add_argument("--model_type", type=str, default="vit_b", help="model type")
