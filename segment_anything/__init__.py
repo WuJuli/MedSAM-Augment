@@ -15,12 +15,4 @@ from .build_sam import (
 from .predictor import SamPredictor
 from .automatic_mask_generator import SamAutomaticMaskGenerator
 
-# from .build_sam_hq import (
-#     build_sam,
-#     build_sam_vit_h,
-#     build_sam_vit_l,
-#     build_sam_vit_b,
-#     sam_model_registry,
-# )
-# from .predictor_hq import SamPredictor
-# from .automatic_mask_generator_hq import SamAutomaticMaskGenerator
+
