@@ -31,7 +31,7 @@ class NpzDataset(Dataset):
                  npz_path,
                  pixel_mean: List[float] = [123.675, 116.28, 103.53],
                  pixel_std: List[float] = [58.395, 57.12, 57.375],
-                 device='cuda:1'
+                 device='cuda:0'
                  ):
         self.npz_path = npz_path
         self.npz_files = sorted(os.listdir(self.npz_path))
@@ -120,10 +120,10 @@ class TrainMedSam:
 
     def __init__(
             self,
-            lr: float = 1e-4,
+            lr: float = 1e-5,
             batch_size: int = 4,
             epochs: int = 50,
-            device: str = "cuda:1",
+            device: str = "cuda:0",
             model_type: str = "vit_b",
             checkpoint: str = "work_dir/SAM/sam_vit_b_01ec64.pth",
             save_path: str = "work_dir/no_npz",
@@ -203,20 +203,24 @@ class TrainMedSam:
                 # Get predictioin mask
                 with torch.inference_mode():
                     # print(image.shape, 'img')
-                    image_embeddings = model.image_encoder(input_image)  # (B,256,64,64)
-
+                    image_embeddings, interm_embeddings = model.image_encoder(input_image)  # (B,256,64,64)
+                    # print(len(interm_embeddings), "checkout ")
                     sparse_embeddings, dense_embeddings = model.prompt_encoder(
                         points=None,
                         boxes=box_tensor,
                         masks=None,
                     )
-
+                # print(image_embeddings.shape, model.prompt_encoder.get_dense_pe().shape, sparse_embeddings.shape,
+                #       dense_embeddings.shape)
+                # ([4, 256, 64, 64])([1, 256, 64, 64])[4, 2, 256][4, 256, 64, 64]
                 mask_predictions, _ = model.mask_decoder(
                     image_embeddings=image_embeddings.to(self.device),  # (B, 256, 64, 64)
                     image_pe=model.prompt_encoder.get_dense_pe(),  # (1, 256, 64, 64)
                     sparse_prompt_embeddings=sparse_embeddings,  # (B, 2, 256)
                     dense_prompt_embeddings=dense_embeddings,  # (B, 256, 64, 64)
                     multimask_output=False,
+                    hq_token_only=False,
+                    interm_embeddings=interm_embeddings,
                 )
                 # Calculate loss
                 loss = seg_loss(mask_predictions, mask)
@@ -276,7 +280,7 @@ if __name__ == '__main__':
         help="the path to original .npz files"
     )
     parser.add_argument('--work_dir', type=str, default='./work_dir')
-    parser.add_argument('--task_name', type=str, default='base_test_3')
+    parser.add_argument('--task_name', type=str, default='tttt')
     parser.add_argument(
         "--num_epochs", type=int, required=False, default=50, help="number of epochs"
     )
@@ -284,7 +288,7 @@ if __name__ == '__main__':
         "--lr", type=float, required=False, default=1e-5, help="learning rate"
     )
     parser.add_argument(
-        "--batch_size", type=int, required=False, default=4, help="batch size"
+        "--batch_size", type=int, required=False, default=1, help="batch size"
     )
     parser.add_argument("--model_type", default="vit_b", type=str, required=False)
     parser.add_argument(

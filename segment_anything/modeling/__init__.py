@@ -13,8 +13,3 @@ from .image_encoder import ImageEncoderViT
 from .mask_decoder import MaskDecoder
 from .tiny_vit_sam import TinyViT
 
-# for sam HQ
-# from .sam_hq import Sam
-# from .image_encoder_hq import ImageEncoderViT
-# from .mask_decoder_hq import MaskDecoder
-# from .tiny_vit_sam_hq import TinyViT
