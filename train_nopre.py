@@ -203,8 +203,10 @@ class TrainMedSam:
                 # Get predictioin mask
                 with torch.inference_mode():
                     # print(image.shape, 'img')
-                    image_embeddings, interm_embeddings = model.image_encoder(input_image)  # (B,256,64,64)
+                    image_embeddings, interm_embeddings, deformable_embeddings = model.image_encoder(
+                        input_image)  # (B,256,64,64)
                     # print(len(interm_embeddings), "checkout ")
+                    # print(len(deformable_embeddings), 233333333333)
                     sparse_embeddings, dense_embeddings = model.prompt_encoder(
                         points=None,
                         boxes=box_tensor,
@@ -219,8 +221,9 @@ class TrainMedSam:
                     sparse_prompt_embeddings=sparse_embeddings,  # (B, 2, 256)
                     dense_prompt_embeddings=dense_embeddings,  # (B, 256, 64, 64)
                     multimask_output=False,
-                    hq_token_only=False,
+                    hq_token_only=True,
                     interm_embeddings=interm_embeddings,
+                    deformable_embeddings=deformable_embeddings,
                 )
                 # Calculate loss
                 loss = seg_loss(mask_predictions, mask)
@@ -280,7 +283,7 @@ if __name__ == '__main__':
         help="the path to original .npz files"
     )
     parser.add_argument('--work_dir', type=str, default='./work_dir')
-    parser.add_argument('--task_name', type=str, default='tttt')
+    parser.add_argument('--task_name', type=str, default='test-dfat')
     parser.add_argument(
         "--num_epochs", type=int, required=False, default=50, help="number of epochs"
     )

@@ -47,6 +47,7 @@ def build_sam_vit_b(checkpoint=None):
         encoder_depth=12,
         encoder_num_heads=12,
         encoder_global_attn_indexes=[2, 5, 8, 11],
+        encoder_deformable_attn_indexes=[0, 3, 6, 9],
         checkpoint=checkpoint,
     )
 
@@ -114,6 +115,7 @@ def _build_sam(
         encoder_depth,
         encoder_num_heads,
         encoder_global_attn_indexes,
+        encoder_deformable_attn_indexes,
         checkpoint=None,
 ):
     prompt_embed_dim = 256
@@ -132,6 +134,7 @@ def _build_sam(
             qkv_bias=True,
             use_rel_pos=True,
             global_attn_indexes=encoder_global_attn_indexes,
+            deformable_attn_indexes=encoder_deformable_attn_indexes,
             window_size=14,
             out_chans=prompt_embed_dim,
         ),
