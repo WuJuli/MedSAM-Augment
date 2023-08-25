@@ -8,83 +8,10 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-import copy
+
 from typing import List, Tuple, Type
 
 from .common import LayerNorm2d
-from deformable_attention import DeformableAttention
-
-class DeformableTransformerEncoderLayer(nn.Module):
-    def __init__(self,
-                 d_model=768, d_ffn=1024,
-                 dropout=0.1, activation="relu"):
-        super().__init__()
-
-        # self attention
-        self.self_attn = DeformableAttention(
-            dim=768,  # feature dimensions
-            dim_head=64,  # dimension per head
-            heads=12,  # attention heads
-            dropout=0.,  # dropout
-            downsample_factor=4,  # downsample factor (r in paper)
-            offset_scale=4,  # scale of offset, maximum offset
-            offset_groups=4,  # number of offset groups, should be multiple of heads
-            offset_kernel_size=6,  # offset kernel size
-        )
-        self.dropout1 = nn.Dropout(dropout)
-        self.norm1 = nn.LayerNorm(normalized_shape=int(d_model))
-
-        # ffn
-        self.linear1 = nn.Linear(d_model, d_ffn)
-        self.activation = _get_activation_fn(activation)
-        self.dropout2 = nn.Dropout(dropout)
-        self.linear2 = nn.Linear(d_ffn, d_model)
-        self.dropout3 = nn.Dropout(dropout)
-        self.norm2 = nn.LayerNorm(d_model)
-
-    def forward_ffn(self, src):
-        src2 = self.linear2(self.dropout2(self.activation(self.linear1(src))))
-        src = src + self.dropout3(src2)
-        src = self.norm2(src)
-        return src
-
-    def forward(self, src):
-        # self attention
-        src2 = self.self_attn(src)
-        src = src + self.dropout1(src2)
-        src = self.norm1(src)
-
-        # ffn
-        src = self.forward_ffn(src)
-
-        return src
-
-
-class DeformableTransformerEncoder(nn.Module):
-    def __init__(self, encoder_layer, num_layers=1):
-        super().__init__()
-        self.layers = _get_clones(encoder_layer, num_layers)
-        self.num_layers = num_layers
-
-    def forward(self, src):
-        for _, layer in enumerate(self.layers):
-            output = layer(src)
-        return output
-
-
-def _get_clones(module, N):
-    return nn.ModuleList([copy.deepcopy(module) for i in range(N)])
-
-
-def _get_activation_fn(activation):
-    """Return an activation function given a string"""
-    if activation == "relu":
-        return F.relu
-    if activation == "gelu":
-        return F.gelu
-    if activation == "glu":
-        return F.glu
-    raise RuntimeError(F"activation should be relu/gelu, not {activation}.")
 
 
 class MaskDecoder(nn.Module):
@@ -99,7 +26,22 @@ class MaskDecoder(nn.Module):
             iou_head_hidden_dim: int = 256,
             vit_dim: int = 768,
     ) -> None:
+        """
+        Predicts masks given an image and prompt embeddings, using a
+        transformer architecture.
 
+        Arguments:
+          transformer_dim (int): the channel dimension of the transformer
+          transformer (nn.Module): the transformer used to predict masks
+          num_multimask_outputs (int): the number of masks to predict
+            when disambiguating masks
+          activation (nn.Module): the type of activation to use when
+            upscaling masks
+          iou_head_depth (int): the depth of the MLP used to predict
+            mask quality
+          iou_head_hidden_dim (int): the hidden dimension of the MLP
+            used to predict mask quality
+        """
         super().__init__()
         self.transformer_dim = transformer_dim
         self.transformer = transformer
@@ -130,8 +72,7 @@ class MaskDecoder(nn.Module):
 
         # HQ-SAM parameters
         self.hf_token = nn.Embedding(1, transformer_dim)  # HQ-Ouptput-Token
-        self.hf_mlp = MLP(transformer_dim, transformer_dim, transformer_dim // 8,
-                          3)  # corresponding new MLP layer for HQ-Ouptput-Token
+        self.hf_mlp = MLP(transformer_dim, transformer_dim, transformer_dim // 8, 3)
         self.num_mask_tokens = self.num_mask_tokens + 1
 
         # three conv fusion layers for obtaining HQ-Feature
@@ -141,14 +82,17 @@ class MaskDecoder(nn.Module):
             nn.GELU(),
             nn.ConvTranspose2d(transformer_dim, transformer_dim // 8, kernel_size=2, stride=2))
 
+        self.embedding_encoder = nn.Sequential(
+            nn.ConvTranspose2d(transformer_dim, transformer_dim // 4, kernel_size=2, stride=2),
+            LayerNorm2d(transformer_dim // 4),
+            nn.GELU(),
+            nn.ConvTranspose2d(transformer_dim // 4, transformer_dim // 8, kernel_size=2, stride=2),
+        )
         self.embedding_maskfeature = nn.Sequential(
             nn.Conv2d(transformer_dim // 8, transformer_dim // 4, 3, 1, 1),
             LayerNorm2d(transformer_dim // 4),
             nn.GELU(),
             nn.Conv2d(transformer_dim // 4, transformer_dim // 8, 3, 1, 1))
-
-        self.deformable_encoder_layer = DeformableTransformerEncoderLayer()
-        self.deformable_encoder = DeformableTransformerEncoder(self.deformable_encoder_layer, 1)
 
     def forward(
             self,
@@ -159,26 +103,41 @@ class MaskDecoder(nn.Module):
             multimask_output: bool,
             hq_token_only: bool,
             interm_embeddings: torch.Tensor,
-            deformable_embeddings: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Predict masks given image and prompt embeddings.
 
-        weights_deformable = [0.7, 0.1, 0.1, 0.1]
+        Arguments:
+          image_embeddings (torch.Tensor): the embeddings from the ViT image encoder
+          image_pe (torch.Tensor): positional encoding with the shape of image_embeddings
+          sparse_prompt_embeddings (torch.Tensor): the embeddings of the points and boxes
+          dense_prompt_embeddings (torch.Tensor): the embeddings of the mask inputs
+          multimask_output (bool): Whether to return multiple masks or a single
+            mask.
 
-        deformable_features = sum(w * emb for w, emb in zip(weights_deformable, deformable_embeddings))
+        Returns:
+          torch.Tensor: batched predicted masks
+          torch.Tensor: batched predictions of mask quality
+        """
+        weights = [0.5, 0, 0, 0.5]
+        vit_features = [weight * emb.permute(0, 3, 1, 2) for weight, emb in zip(weights, interm_embeddings)]
+        vit_features = sum(vit_features)
 
-        with torch.inference_mode():
-            deformable_features = self.deformable_encoder(deformable_features)
-            deformable_features = deformable_features.permute(0, 3, 1, 2)
-
-        cloned_deformable_features = deformable_features.clone().detach()
-
-        hq_features = self.compress_vit_feat(cloned_deformable_features)
+        cloned_image_embeddings = image_embeddings.clone().detach()
+        cloned_vit_features = vit_features.clone().detach()
+        hq_features = self.embedding_encoder(cloned_image_embeddings) + self.compress_vit_feat(cloned_vit_features)
 
         batch_len = len(image_embeddings)
         image_pe = torch.repeat_interleave(image_pe, batch_len, dim=0)
         masks = []
         iou_preds = []
-
+        # print("mask deocoder!!!------------------------")
+        # print(vit_features.shape, "8888")
+        # print(image_embeddings.shape)
+        # print(image_pe.shape)
+        # print(sparse_prompt_embeddings.shape)
+        # print(dense_prompt_embeddings.shape)
+        # print(len(interm_embeddings))
         for i_batch in range(batch_len):
             mask, iou_pred = self.predict_masks(
                 image_embeddings=image_embeddings[i_batch].unsqueeze(0),
@@ -208,8 +167,6 @@ class MaskDecoder(nn.Module):
             masks_sam = masks[:, mask_slice]
 
         masks_hq = masks[:, slice(self.num_mask_tokens - 1, self.num_mask_tokens)]
-        # print(masks_sam.shape, "sam shape") torch.Size([1, 1, 256, 256])
-        # print(masks_hq.shape, "hq shape") torch.Size([1, 1, 256, 256])
         if hq_token_only:
             masks = masks_hq
         else:
@@ -262,7 +219,6 @@ class MaskDecoder(nn.Module):
                                                                                                              w)
         masks_sam_hq = (hyper_in[:, self.num_mask_tokens - 1:] @ upscaled_embedding_hq.view(b, c, h * w)).view(b, -1, h,
                                                                                                                w)
-        # print(masks_sam.shape, masks_sam_hq.shape)torch.Size([1, 4, 256, 256]) torch.Size([1, 1, 256, 256])
         masks = torch.cat([masks_sam, masks_sam_hq], dim=1)
         # Generate mask quality predictions
         iou_pred = self.iou_prediction_head(iou_token_out)

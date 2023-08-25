@@ -10,7 +10,7 @@ import torch.nn.functional as F
 
 from typing import Optional, Tuple, Type
 
-from .common import LayerNorm2d, MLPBlock
+from .common import LayerNorm2d, MLPBlock, Adapter
 
 
 # This class and its supporting functions below lightly adapted from the ViTDet backbone available at: https://github.com/facebookresearch/detectron2/blob/main/detectron2/modeling/backbone/vit.py # noqa
@@ -33,7 +33,6 @@ class ImageEncoderViT(nn.Module):
             rel_pos_zero_init: bool = True,
             window_size: int = 0,
             global_attn_indexes: Tuple[int, ...] = (),
-            deformable_attn_indexes: Tuple[int, ...] = (),
     ) -> None:
         """
         Args:
@@ -55,8 +54,6 @@ class ImageEncoderViT(nn.Module):
         """
         super().__init__()
         self.img_size = img_size
-        self.deformable_attn_indexes = deformable_attn_indexes
-        self.global_attn_indexes = global_attn_indexes
 
         self.patch_embed = PatchEmbed(
             kernel_size=(patch_size, patch_size),
@@ -87,7 +84,6 @@ class ImageEncoderViT(nn.Module):
                 input_size=(img_size // patch_size, img_size // patch_size),
             )
             self.blocks.append(block)
-            # print(f"Block {i + 1} - Window Size: {block.window_size}")
 
         self.neck = nn.Sequential(
             nn.Conv2d(
@@ -111,19 +107,15 @@ class ImageEncoderViT(nn.Module):
         x = self.patch_embed(x)
         if self.pos_embed is not None:
             x = x + self.pos_embed
-
         interm_embeddings = []
-        deformable_embeddings = []
-        for idx in range(len(self.blocks)):
-            if idx in self.deformable_attn_indexes:
-                deformable_embeddings.append(x)
-            blk = self.blocks[idx]
+        for blk in self.blocks:
             x = blk(x)
-            if idx in self.global_attn_indexes:
+            if blk.window_size == 0:
                 interm_embeddings.append(x)
 
         x = self.neck(x.permute(0, 3, 1, 2))
-        return x, interm_embeddings, deformable_embeddings
+
+        return x, interm_embeddings
 
 
 class Block(nn.Module):
@@ -141,6 +133,7 @@ class Block(nn.Module):
             rel_pos_zero_init: bool = True,
             window_size: int = 0,
             input_size: Optional[Tuple[int, int]] = None,
+            scale: float = 0.5,
     ) -> None:
         """
         Args:
@@ -173,21 +166,29 @@ class Block(nn.Module):
 
         self.window_size = window_size
 
+        self.MLP_Adapter = Adapter(dim, skip_connect=False)  # MLP-adapter, no skip connection
+        self.Space_Adapter = Adapter(dim)  # with skip connection
+        self.scale = scale
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         shortcut = x
-        x = self.norm1(x)
+
         # Window partition
         if self.window_size > 0:
             H, W = x.shape[1], x.shape[2]
             x, pad_hw = window_partition(x, self.window_size)
 
+        x = self.norm1(x)
         x = self.attn(x)
+        x = self.Space_Adapter(x)
+
         # Reverse window partition
         if self.window_size > 0:
             x = window_unpartition(x, self.window_size, pad_hw, (H, W))
 
         x = shortcut + x
-        x = x + self.mlp(self.norm2(x))
+
+        x = x + self.mlp(self.norm2(x)) + self.scale * self.MLP_Adapter(x)
 
         return x
 
