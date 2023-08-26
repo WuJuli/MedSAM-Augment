@@ -72,8 +72,7 @@ class MaskDecoder(nn.Module):
 
         # HQ-SAM parameters
         self.hf_token = nn.Embedding(1, transformer_dim)  # HQ-Ouptput-Token
-        self.hf_mlp = MLP(transformer_dim, transformer_dim, transformer_dim // 8,
-                          3)  # corresponding new MLP layer for HQ-Ouptput-Token
+        self.hf_mlp = MLP(transformer_dim, transformer_dim, transformer_dim // 8, 3)
         self.num_mask_tokens = self.num_mask_tokens + 1
 
         # three conv fusion layers for obtaining HQ-Feature
@@ -120,8 +119,10 @@ class MaskDecoder(nn.Module):
           torch.Tensor: batched predicted masks
           torch.Tensor: batched predictions of mask quality
         """
-        vit_features = interm_embeddings[0].permute(0, 3, 1,
-                                                    2)  # early-layer ViT feature, after 1st global attention block in ViT
+        weights = [0.5, 0, 0, 0.5]
+        vit_features = [weight * emb.permute(0, 3, 1, 2) for weight, emb in zip(weights, interm_embeddings)]
+        vit_features = sum(vit_features)
+
         cloned_image_embeddings = image_embeddings.clone().detach()
         cloned_vit_features = vit_features.clone().detach()
         hq_features = self.embedding_encoder(cloned_image_embeddings) + self.compress_vit_feat(cloned_vit_features)

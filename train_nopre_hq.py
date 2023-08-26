@@ -33,7 +33,7 @@ class NpzDataset(Dataset):
                  npz_path,
                  pixel_mean: List[float] = [123.675, 116.28, 103.53],
                  pixel_std: List[float] = [58.395, 57.12, 57.375],
-                 device='cuda:1'
+                 device='cuda:0'
                  ):
         self.npz_path = npz_path
         self.npz_files = sorted(os.listdir(self.npz_path))
@@ -325,7 +325,7 @@ class TrainMedSam:
             lr: float = 1e-4,
             batch_size: int = 4,
             epochs: int = 50,
-            device: str = "cuda:1",
+            device: str = "cuda:0",
             model_type: str = "vit_b",
             checkpoint: str = "work_dir/SAM/sam_vit_b_01ec64.pth",
             save_path: str = "work_dir/no_npz",
@@ -427,7 +427,7 @@ class TrainMedSam:
                     sparse_prompt_embeddings=sparse_embeddings,  # (B, 2, 256)
                     dense_prompt_embeddings=dense_embeddings,  # (B, 256, 64, 64)
                     multimask_output=False,
-                    hq_token_only=False,
+                    hq_token_only=True,
                     interm_embeddings=interm_embeddings,
                 )
 
@@ -493,15 +493,15 @@ if __name__ == '__main__':
         help="the path to original .npz files"
     )
     parser.add_argument('--work_dir', type=str, default='./work_dir')
-    parser.add_argument('--task_name', type=str, default='hq_test_8')
+    parser.add_argument('--task_name', type=str, default='hq_test_4114')
     parser.add_argument(
-        "--num_epochs", type=int, required=False, default=10, help="number of epochs"
+        "--num_epochs", type=int, required=False, default=50, help="number of epochs"
     )
     parser.add_argument(
         "--lr", type=float, required=False, default=1e-5, help="learning rate"
     )
     parser.add_argument(
-        "--batch_size", type=int, required=False, default=4, help="batch size"
+        "--batch_size", type=int, required=False, default=1, help="batch size"
     )
     parser.add_argument("--model_type", default="vit_b", type=str, required=False)
     parser.add_argument(

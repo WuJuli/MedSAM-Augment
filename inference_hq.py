@@ -472,7 +472,7 @@ def compute_surface_dice_at_tolerance(surface_distances, tolerance_mm):
     return surface_dice
 
 
-def finetune_model_predict(img_np, box_np, sam_trans, sam_model_tune, device='cuda:1'):
+def finetune_model_predict(img_np, box_np, sam_trans, sam_model_tune, device='cuda:0'):
     H, W = img_np.shape[:2]
     img_np = img_np.astype(np.uint8)
 
@@ -514,13 +514,13 @@ parser = argparse.ArgumentParser(description='run inference on testing set based
 parser.add_argument('-i', '--data_path', type=str, default='./data/Test-20230630T084040Z-001/Test',
                     help='path to the data folder')
 # save the NSD . DSC result
-parser.add_argument('-o', '--seg_path_root', type=str, default='./data/test_result/sam-hq-true-true',
+parser.add_argument('-o', '--seg_path_root', type=str, default='./data/test_result/sam-hq-true-true-4114',
                     help='path to the segmentation folder')
-parser.add_argument('--seg_png_path', type=str, default='./data/test_result/sanity_test/sam-hq-true-true',
+parser.add_argument('--seg_png_path', type=str, default='./data/test_result/sanity_test/sam-hq-true-true-4114',
                     help='path to the segmentation folder')
 parser.add_argument('--model_type', type=str, default='vit_b', help='model type')
-parser.add_argument('--device', type=str, default='cuda:1', help='device')
-parser.add_argument('-chk', '--checkpoint', type=str, default='work_dir/train-hq-only/sam_model_no_pre1.pth',
+parser.add_argument('--device', type=str, default='cuda:0', help='device')
+parser.add_argument('-chk', '--checkpoint', type=str, default='work_dir/hq-only-4114/sam_model_no_pre14.pth',
                     help='path to the trained model')
 args = parser.parse_args()
 
