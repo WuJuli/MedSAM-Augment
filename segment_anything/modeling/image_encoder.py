@@ -10,7 +10,7 @@ import torch.nn.functional as F
 
 from typing import Optional, Tuple, Type
 
-from .common import LayerNorm2d, MLPBlock, Adapter
+from .common import LayerNorm2d, MLPBlock, VisualPrompt
 
 
 # This class and its supporting functions below lightly adapted from the ViTDet backbone available at: https://github.com/facebookresearch/detectron2/blob/main/detectron2/modeling/backbone/vit.py # noqa
@@ -102,15 +102,22 @@ class ImageEncoderViT(nn.Module):
             ),
             LayerNorm2d(out_chans),
         )
+        self.vpt = VisualPrompt(
+            batch_size=2, num_prompt=8, prompt_config_drop=0.05, hidden_size=768, patch_size=14, scale=0.1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.patch_embed(x)
         if self.pos_embed is not None:
             x = x + self.pos_embed
         interm_embeddings = []
+
         for blk in self.blocks:
+            # print(x.shape)
+
             x = blk(x)
+
             if blk.window_size == 0:
+                x = self.vpt(x)
                 interm_embeddings.append(x)
 
         x = self.neck(x.permute(0, 3, 1, 2))
@@ -133,7 +140,6 @@ class Block(nn.Module):
             rel_pos_zero_init: bool = True,
             window_size: int = 0,
             input_size: Optional[Tuple[int, int]] = None,
-            scale: float = 0.5,
     ) -> None:
         """
         Args:
@@ -166,29 +172,21 @@ class Block(nn.Module):
 
         self.window_size = window_size
 
-        self.MLP_Adapter = Adapter(dim, skip_connect=False)  # MLP-adapter, no skip connection
-        self.Space_Adapter = Adapter(dim)  # with skip connection
-        self.scale = scale
-
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         shortcut = x
-
+        x = self.norm1(x)
         # Window partition
         if self.window_size > 0:
             H, W = x.shape[1], x.shape[2]
             x, pad_hw = window_partition(x, self.window_size)
 
-        x = self.norm1(x)
         x = self.attn(x)
-        x = self.Space_Adapter(x)
-
         # Reverse window partition
         if self.window_size > 0:
             x = window_unpartition(x, self.window_size, pad_hw, (H, W))
 
         x = shortcut + x
-
-        x = x + self.mlp(self.norm2(x)) + self.scale * self.MLP_Adapter(x)
+        x = x + self.mlp(self.norm2(x))
 
         return x
 

@@ -4,10 +4,46 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import math
 import torch
 import torch.nn as nn
 
-from typing import Type
+import torch.nn.functional as F
+from torch.nn import Conv2d, Dropout
+from typing import Optional, Tuple, Type
+from operator import mul
+from functools import reduce
+
+
+class VisualPrompt(nn.Module):
+    def __init__(self, batch_size=2, num_prompt=8, prompt_config_drop=0, hidden_size=768, patch_size=14, scale=0.1):
+        super().__init__()
+        self.num_prompt = num_prompt
+        self.hidden_size = hidden_size
+        self.prompt_dropout = Dropout(prompt_config_drop)
+        in_channel = batch_size * hidden_size
+        out_channel = batch_size * num_prompt * num_prompt * hidden_size
+
+        self.prompt_proj = nn.Linear(in_features=in_channel, out_features=out_channel)
+        nn.init.kaiming_normal_(self.prompt_proj.weight, a=0, mode='fan_out')
+
+        self.prompt_embedding = nn.Parameter(torch.zeros(batch_size, 1, 1, hidden_size))
+        # val = math.sqrt(6. / float(3 * reduce(mul, patch_size, 1) + hidden_size))  # noqa
+
+        val = math.sqrt(6. / float(3 * patch_size * patch_size * hidden_size))
+        nn.init.uniform_(self.prompt_embedding.data, -val, val)
+        self.scale = scale
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, H, W, _ = x.shape
+
+        y = self.prompt_proj(self.prompt_embedding.view(-1))
+        y = self.prompt_dropout(y.view(B, self.num_prompt, self.num_prompt, self.hidden_size))
+
+        y = y.repeat(1, H // self.num_prompt, W // self.num_prompt, 1)
+
+        contact = x + self.scale * y
+        return contact
 
 
 class Adapter(nn.Module):
@@ -30,12 +66,13 @@ class Adapter(nn.Module):
             x = xs
         return x
 
+
 class MLPBlock(nn.Module):
     def __init__(
-        self,
-        embedding_dim: int,
-        mlp_dim: int,
-        act: Type[nn.Module] = nn.GELU,
+            self,
+            embedding_dim: int,
+            mlp_dim: int,
+            act: Type[nn.Module] = nn.GELU,
     ) -> None:
         super().__init__()
         self.lin1 = nn.Linear(embedding_dim, mlp_dim)

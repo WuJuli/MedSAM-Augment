@@ -204,16 +204,17 @@ class TrainMedSam:
                 #     print(n)
 
                 for n, value in model.image_encoder.named_parameters():
-                    if "Adapter" not in n:
+                    if "vpt" not in n:
                         value.requires_grad = False
 
+                image_embeddings, interm_embeddings = model.image_encoder(input_image)
                 # Get predictioin mask
                 with torch.inference_mode():
                     # print(image.shape, 'img')
                     # (B,256,64,64)
                     # print(len(interm_embeddings), "checkout ")
                     # print(len(deformable_embeddings), 233333333333)
-                    image_embeddings, interm_embeddings = model.image_encoder(input_image)
+
                     sparse_embeddings, dense_embeddings = model.prompt_encoder(
                         points=None,
                         boxes=box_tensor,
@@ -289,7 +290,7 @@ if __name__ == '__main__':
         help="the path to original .npz files"
     )
     parser.add_argument('--work_dir', type=str, default='./work_dir')
-    parser.add_argument('--task_name', type=str, default='test-ori')
+    parser.add_argument('--task_name', type=str, default='test-vpt')
     parser.add_argument(
         "--num_epochs", type=int, required=False, default=50, help="number of epochs"
     )
