@@ -15,6 +15,134 @@ from operator import mul
 from functools import reduce
 
 
+class MultiScaleAdapterV3(nn.Module):
+    def __init__(self, D_features, skip_connect=True):
+        super().__init__()
+        self.skip_connect = skip_connect
+        D_hidden_features = D_features // 3
+
+        self.D_fc = nn.Linear(D_features, D_hidden_features)
+        self.D_fc_final = nn.Linear(D_features, D_features)
+        self.act = nn.GELU()
+        self.conv = nn.Conv2d(D_features, D_features, kernel_size=3, stride=2, padding=1)
+        self.convtd = nn.ConvTranspose2d(D_features, D_features, kernel_size=2, stride=2)
+
+    def forward(self, x):
+        _, h, w, _ = x.shape
+        target_size = (h, w)
+
+        x1 = self.act(self.conv(x.permute(0, 3, 1, 2)))
+        x1 = self.act(self.D_fc(x1.permute(0, 2, 3, 1)))
+        x1 = F.interpolate(x1.permute(0, 3, 1, 2), size=target_size, mode='bilinear', align_corners=False)
+
+        x2 = self.act(self.D_fc(x))
+
+        x3 = self.act(self.convtd(x.permute(0, 3, 1, 2)))
+        x3 = self.act(self.D_fc(x3.permute(0, 2, 3, 1)))
+        x3 = F.interpolate(x3.permute(0, 3, 1, 2), size=target_size, mode='bilinear', align_corners=False)
+
+        xc = torch.cat([x1.permute(0, 2, 3, 1), x2, x3.permute(0, 2, 3, 1)], dim=3)
+        xc = self.D_fc_final(xc)
+
+        if self.skip_connect:
+            x = x + xc
+        else:
+            x = xc
+
+        return x
+
+
+class MultiScaleAdapterV2(nn.Module):
+    def __init__(self, D_features, skip_connect=True):
+        super().__init__()
+        self.skip_connect = skip_connect
+        D_hidden_features = D_features // 2
+
+        self.D_fc1 = nn.Linear(D_features, D_hidden_features)
+        self.D_fc2 = nn.Linear(D_features, D_hidden_features)
+        self.D_fc_final = nn.Linear(D_features, D_features)
+        self.act = nn.GELU()
+        self.conv = nn.Conv2d(D_features, D_features, kernel_size=3, stride=2, padding=1)
+
+    def forward(self, x):
+        _, h, w, _ = x.shape
+        target_size = (h, w)
+
+        x1 = self.act(self.conv(x.permute(0, 3, 1, 2)))
+        x1 = self.act(self.D_fc1(x1.permute(0, 2, 3, 1)))
+        x1 = F.interpolate(x1.permute(0, 3, 1, 2), size=target_size, mode='bilinear', align_corners=False)
+
+        x2 = self.act(self.D_fc2(x))
+
+        xc = torch.cat([x1.permute(0, 2, 3, 1), x2], dim=3)
+        xc = self.D_fc_final(xc)
+
+        if self.skip_connect:
+            x = x + xc
+        else:
+            x = xc
+        return x
+
+
+class MultiScaleAdapter(nn.Module):
+    def __init__(self, D_features, skip_connect=True):
+        super().__init__()
+        self.skip_connect = skip_connect
+        D_hidden_features = D_features // 3
+
+        self.D_fc = nn.Linear(D_features, D_hidden_features)
+        self.act = nn.GELU()
+        self.conv = nn.Conv2d(D_hidden_features, D_hidden_features, kernel_size=3, stride=2, padding=1)
+
+    def forward(self, x):
+        _, h, w, _ = x.shape
+        target_size = (h, w)
+
+        x1 = self.act(self.D_fc(x))
+        x1 = x1.permute(0, 3, 1, 2)
+
+        x2 = self.act(self.conv(x1))
+        x3 = self.act(self.conv(x2))
+
+        x2 = F.interpolate(x2, size=target_size, mode='bilinear', align_corners=False)
+        x3 = F.interpolate(x3, size=target_size, mode='bilinear', align_corners=False)
+
+        xc = torch.cat([x1, x2, x3], dim=1)
+        xc = xc.permute(0, 2, 3, 1)
+
+        if self.skip_connect:
+            x = x + xc
+        else:
+            x = xc
+        return x
+
+
+class MyAdapter(nn.Module):
+    def __init__(self, D_features, mlp_ratio=0.25, skip_connect=True):
+        super().__init__()
+        self.skip_connect = skip_connect
+        D_hidden_features = int(D_features * mlp_ratio)
+
+        self.adapter_feature = nn.Sequential(
+            nn.BatchNorm2d(D_features),
+            nn.GELU(),
+            nn.ConvTranspose2d(D_features, D_hidden_features, kernel_size=2, stride=2),
+            nn.BatchNorm2d(D_hidden_features),
+            nn.GELU(),
+            nn.Conv2d(D_hidden_features, D_features, kernel_size=3, stride=2, padding=1)
+        )
+
+    def forward(self, x):
+        xs = self.adapter_feature(x.permute(0, 3, 1, 2))
+        xs = xs.permute(0, 2, 3, 1)
+
+        if self.skip_connect:
+            x = x + xs
+        else:
+            x = xs
+        return x
+
+
 class VisualPrompt(nn.Module):
     def __init__(self, batch_size=2, num_prompt=8, prompt_config_drop=0, hidden_size=768, patch_size=14, scale=0.1):
         super().__init__()
@@ -56,7 +184,6 @@ class Adapter(nn.Module):
         self.D_fc2 = nn.Linear(D_hidden_features, D_features)
 
     def forward(self, x):
-        # x is (BT, HW+1, D)
         xs = self.D_fc1(x)
         xs = self.act(xs)
         xs = self.D_fc2(xs)

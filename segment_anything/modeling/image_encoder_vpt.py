@@ -10,29 +10,39 @@ import torch.nn.functional as F
 
 from typing import Optional, Tuple, Type
 
-from .common import LayerNorm2d, MLPBlock
+from .common import LayerNorm2d, MLPBlock, MultiScaleAdapterV2
+import math
+from functools import partial, reduce
+from operator import mul
 
 
 # This class and its supporting functions below lightly adapted from the ViTDet backbone available at: https://github.com/facebookresearch/detectron2/blob/main/detectron2/modeling/backbone/vit.py # noqa
 class ImageEncoderViT(nn.Module):
     def __init__(
-        self,
-        img_size: int = 1024,
-        patch_size: int = 16,
-        in_chans: int = 3,
-        embed_dim: int = 768,
-        depth: int = 12,
-        num_heads: int = 12,
-        mlp_ratio: float = 4.0,
-        out_chans: int = 256,
-        qkv_bias: bool = True,
-        norm_layer: Type[nn.Module] = nn.LayerNorm,
-        act_layer: Type[nn.Module] = nn.GELU,
-        use_abs_pos: bool = True,
-        use_rel_pos: bool = False,
-        rel_pos_zero_init: bool = True,
-        window_size: int = 0,
-        global_attn_indexes: Tuple[int, ...] = (),
+            self,
+            img_size: int = 1024,
+            patch_size: int = 16,
+            in_chans: int = 3,
+            embed_dim: int = 768,
+            depth: int = 12,
+            num_heads: int = 12,
+            mlp_ratio: float = 4.0,
+            out_chans: int = 256,
+            qkv_bias: bool = True,
+            norm_layer: Type[nn.Module] = nn.LayerNorm,
+            act_layer: Type[nn.Module] = nn.GELU,
+            use_abs_pos: bool = True,
+            use_rel_pos: bool = False,
+            rel_pos_zero_init: bool = True,
+            window_size: int = 0,
+            global_attn_indexes: Tuple[int, ...] = (),
+            prompt_config={
+                'USE_PROMPT': True,
+                'USE_ADAPTER': False,
+                'LOCATION': 'prepend',
+                'DROPOUT': 0.1,
+                'NUM_TOKENS': 5
+            }
     ) -> None:
         """
         Args:
@@ -54,6 +64,9 @@ class ImageEncoderViT(nn.Module):
         """
         super().__init__()
         self.img_size = img_size
+        self.embed_dim = embed_dim
+        self.patch_size = (patch_size, patch_size)
+        self.prompt_config = prompt_config
 
         self.patch_embed = PatchEmbed(
             kernel_size=(patch_size, patch_size),
@@ -103,12 +116,60 @@ class ImageEncoderViT(nn.Module):
             LayerNorm2d(out_chans),
         )
 
+        if self.prompt_config['USE_PROMPT']:
+            val = math.sqrt(6. / float(3 * reduce(mul, self.patch_size, 1) + self.embed_dim))  # noqa
+            self.prompt_dropout = nn.Dropout(self.prompt_config['DROPOUT'])
+            self.prompt_embeddings = nn.Parameter(torch.zeros(1, self.prompt_config['NUM_TOKENS'], self.embed_dim))
+            nn.init.uniform_(self.prompt_embeddings.data, -val, val)
+
+            self.deep_prompt_embeddings = nn.Parameter(torch.zeros(
+                len(self.blocks) - 1,
+                self.prompt_config['NUM_TOKENS'],
+                self.embed_dim
+            ))
+            nn.init.uniform_(self.deep_prompt_embeddings.data, -val, val)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        print("------------------------this is vpt-------------------------------")
         x = self.patch_embed(x)
         if self.pos_embed is not None:
             x = x + self.pos_embed
 
-        interm_embeddings=[]
+        print(x.shape, "before vpt")
+
+        if self.prompt_config['USE_PROMPT']:
+            B, H, W, C = x.shape
+            x = x.view((B, H*W, C))
+            x = self.incorporate_prompt(x)
+            B = x.shape[0]
+            print("x shape: ", x.shape)
+            num_block = len(self.blocks)
+            print(num_block, "hhhh")
+            for i in range(num_block):
+                if i == 0:
+                    print(x.shape, 0)
+                    x = self.blocks[i](x)
+                else:
+                    
+                    x = torch.cat((
+                        x[:, :1, :],
+                        self.prompt_dropout(self.deep_prompt_embeddings[i - 1].expand(B, -1, -1)),
+                        x[:, (1 + self.prompt_config['NUM_TOKENS']):, :]
+                    ), dim=1)
+                    print(x.shape, 2)
+                    x = self.blocks[i](x)
+                    print(x.shape, 1)
+
+            x = torch.cat((
+                x[:, :1, :],
+                x[:, (1 + self.prompt_config['NUM_TOKENS']):, :]
+            ), dim=1)
+            print(x.shape, 3)
+        else:
+            for blk in self.blocks:
+                x = blk(x)
+
+        interm_embeddings = []
         for blk in self.blocks:
             x = blk(x)
             if blk.window_size == 0:
@@ -118,22 +179,35 @@ class ImageEncoderViT(nn.Module):
 
         return x, interm_embeddings
 
+    def incorporate_prompt(self, x):
+        B = x.shape[0]
+        if self.prompt_config['LOCATION'] == 'prepend':
+            x = torch.cat((
+                x[:, :1, :],
+                self.prompt_dropout(self.prompt_embeddings.expand(B, -1, -1)),
+                x[:, 1:, :]
+            ), dim=1)
+        else:
+            raise ValueError("Other prompt location not supported")
+        return x
+
 
 class Block(nn.Module):
     """Transformer blocks with support of window attention and residual propagation blocks"""
 
     def __init__(
-        self,
-        dim: int,
-        num_heads: int,
-        mlp_ratio: float = 4.0,
-        qkv_bias: bool = True,
-        norm_layer: Type[nn.Module] = nn.LayerNorm,
-        act_layer: Type[nn.Module] = nn.GELU,
-        use_rel_pos: bool = False,
-        rel_pos_zero_init: bool = True,
-        window_size: int = 0,
-        input_size: Optional[Tuple[int, int]] = None,
+            self,
+            dim: int,
+            num_heads: int,
+            mlp_ratio: float = 4.0,
+            qkv_bias: bool = True,
+            norm_layer: Type[nn.Module] = nn.LayerNorm,
+            act_layer: Type[nn.Module] = nn.GELU,
+            use_rel_pos: bool = False,
+            rel_pos_zero_init: bool = True,
+            window_size: int = 0,
+            input_size: Optional[Tuple[int, int]] = None,
+            use_adapter: bool = False,
     ) -> None:
         """
         Args:
@@ -165,6 +239,8 @@ class Block(nn.Module):
         self.mlp = MLPBlock(embedding_dim=dim, mlp_dim=int(dim * mlp_ratio), act=act_layer)
 
         self.window_size = window_size
+        self.use_adapter = use_adapter
+        self.msc_Adapter = MultiScaleAdapterV2(dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         shortcut = x
@@ -175,6 +251,8 @@ class Block(nn.Module):
             x, pad_hw = window_partition(x, self.window_size)
 
         x = self.attn(x)
+        if self.use_adapter:
+            x = self.msc_Adapter(x)
         # Reverse window partition
         if self.window_size > 0:
             x = window_unpartition(x, self.window_size, pad_hw, (H, W))
@@ -201,11 +279,11 @@ class Attention(nn.Module):
         Args:
             dim (int): Number of input channels.
             num_heads (int): Number of attention heads.
-            qkv_bias (bool):  If True, add a learnable bias to query, key, value.
+            qkv_bias (bool:  If True, add a learnable bias to query, key, value.
             rel_pos (bool): If True, add relative positional embeddings to the attention map.
             rel_pos_zero_init (bool): If True, zero initialize relative positional parameters.
-            input_size (tuple(int, int) or None): Input resolution for calculating the relative
-                positional parameter size.
+            input_size (int or None): Input resolution for calculating the relative positional
+                parameter size.
         """
         super().__init__()
         self.num_heads = num_heads
@@ -225,19 +303,19 @@ class Attention(nn.Module):
             self.rel_pos_w = nn.Parameter(torch.zeros(2 * input_size[1] - 1, head_dim))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        B, H, W, _ = x.shape
+        B, HW, _ = x.shape
         # qkv with shape (3, B, nHead, H * W, C)
-        qkv = self.qkv(x).reshape(B, H * W, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
+        qkv = self.qkv(x).reshape(B, HW, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
         # q, k, v with shape (B * nHead, H * W, C)
-        q, k, v = qkv.reshape(3, B * self.num_heads, H * W, -1).unbind(0)
+        q, k, v = qkv.reshape(3, B * self.num_heads, HW, -1).unbind(0)
 
         attn = (q * self.scale) @ k.transpose(-2, -1)
 
-        if self.use_rel_pos:
-            attn = add_decomposed_rel_pos(attn, q, self.rel_pos_h, self.rel_pos_w, (H, W), (H, W))
+        # if self.use_rel_pos:
+        #     attn = add_decomposed_rel_pos(attn, q, self.rel_pos_h, self.rel_pos_w, (H, W), (H, W))
 
         attn = attn.softmax(dim=-1)
-        x = (attn @ v).view(B, self.num_heads, H, W, -1).permute(0, 2, 3, 1, 4).reshape(B, H, W, -1)
+        x = (attn @ v).view(B, self.num_heads, HW, -1).permute(0, 2, 1, 3).reshape(B, HW, -1)
         x = self.proj(x)
 
         return x
@@ -273,7 +351,7 @@ def window_unpartition(
     """
     Window unpartition into original sequences and removing padding.
     Args:
-        windows (tensor): input tokens with [B * num_windows, window_size, window_size, C].
+        x (tensor): input tokens with [B * num_windows, window_size, window_size, C].
         window_size (int): window size.
         pad_hw (Tuple): padded height and width (Hp, Wp).
         hw (Tuple): original height and width (H, W) before padding.
@@ -326,12 +404,12 @@ def get_rel_pos(q_size: int, k_size: int, rel_pos: torch.Tensor) -> torch.Tensor
 
 
 def add_decomposed_rel_pos(
-    attn: torch.Tensor,
-    q: torch.Tensor,
-    rel_pos_h: torch.Tensor,
-    rel_pos_w: torch.Tensor,
-    q_size: Tuple[int, int],
-    k_size: Tuple[int, int],
+        attn: torch.Tensor,
+        q: torch.Tensor,
+        rel_pos_h: torch.Tensor,
+        rel_pos_w: torch.Tensor,
+        q_size: Tuple[int, int],
+        k_size: Tuple[int, int],
 ) -> torch.Tensor:
     """
     Calculate decomposed Relative Positional Embeddings from :paper:`mvitv2`.
@@ -358,7 +436,7 @@ def add_decomposed_rel_pos(
     rel_w = torch.einsum("bhwc,wkc->bhwk", r_q, Rw)
 
     attn = (
-        attn.view(B, q_h, q_w, k_h, k_w) + rel_h[:, :, :, :, None] + rel_w[:, :, :, None, :]
+            attn.view(B, q_h, q_w, k_h, k_w) + rel_h[:, :, :, :, None] + rel_w[:, :, :, None, :]
     ).view(B, q_h * q_w, k_h * k_w)
 
     return attn
@@ -370,12 +448,12 @@ class PatchEmbed(nn.Module):
     """
 
     def __init__(
-        self,
-        kernel_size: Tuple[int, int] = (16, 16),
-        stride: Tuple[int, int] = (16, 16),
-        padding: Tuple[int, int] = (0, 0),
-        in_chans: int = 3,
-        embed_dim: int = 768,
+            self,
+            kernel_size: Tuple[int, int] = (16, 16),
+            stride: Tuple[int, int] = (16, 16),
+            padding: Tuple[int, int] = (0, 0),
+            in_chans: int = 3,
+            embed_dim: int = 768,
     ) -> None:
         """
         Args:
