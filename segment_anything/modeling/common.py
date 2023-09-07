@@ -21,7 +21,9 @@ class MultiScaleAdapterV3(nn.Module):
         self.skip_connect = skip_connect
         D_hidden_features = D_features // 3
 
-        self.D_fc = nn.Linear(D_features, D_hidden_features)
+        self.D_fc1 = nn.Linear(D_features, D_hidden_features)
+        self.D_fc2 = nn.Linear(D_features, D_hidden_features)
+        self.D_fc3 = nn.Linear(D_features, D_hidden_features)
         self.D_fc_final = nn.Linear(D_features, D_features)
         self.act = nn.GELU()
         self.conv = nn.Conv2d(D_features, D_features, kernel_size=3, stride=2, padding=1)
@@ -32,13 +34,13 @@ class MultiScaleAdapterV3(nn.Module):
         target_size = (h, w)
 
         x1 = self.act(self.conv(x.permute(0, 3, 1, 2)))
-        x1 = self.act(self.D_fc(x1.permute(0, 2, 3, 1)))
+        x1 = self.act(self.D_fc1(x1.permute(0, 2, 3, 1)))
         x1 = F.interpolate(x1.permute(0, 3, 1, 2), size=target_size, mode='bilinear', align_corners=False)
 
-        x2 = self.act(self.D_fc(x))
+        x2 = self.act(self.D_fc2(x))
 
         x3 = self.act(self.convtd(x.permute(0, 3, 1, 2)))
-        x3 = self.act(self.D_fc(x3.permute(0, 2, 3, 1)))
+        x3 = self.act(self.D_fc3(x3.permute(0, 2, 3, 1)))
         x3 = F.interpolate(x3.permute(0, 3, 1, 2), size=target_size, mode='bilinear', align_corners=False)
 
         xc = torch.cat([x1.permute(0, 2, 3, 1), x2, x3.permute(0, 2, 3, 1)], dim=3)
