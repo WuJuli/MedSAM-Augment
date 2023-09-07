@@ -119,6 +119,7 @@ class MaskDecoder(nn.Module):
           torch.Tensor: batched predicted masks
           torch.Tensor: batched predictions of mask quality
         """
+        print("============this is hq decoder============")
         weights = [0.5, 0, 0, 0.5]
         vit_features = [weight * emb.permute(0, 3, 1, 2) for weight, emb in zip(weights, interm_embeddings)]
         vit_features = sum(vit_features)

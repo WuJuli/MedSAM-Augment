@@ -13,7 +13,6 @@ from torch.nn import functional as F
 from typing import List, Tuple, Type
 
 from .common import LayerNorm2d
-import torch.nn.parameter as Parameter
 
 
 class MaskDecoder(nn.Module):
@@ -27,7 +26,7 @@ class MaskDecoder(nn.Module):
             iou_head_depth: int = 3,
             iou_head_hidden_dim: int = 256,
             vit_dim: int = 768,
-            stage: int = 5,
+            stage: int = 2,
     ) -> None:
         """
         Predicts masks given an image and prompt embeddings, using a
@@ -78,7 +77,7 @@ class MaskDecoder(nn.Module):
         )
 
         self.stage = stage
-        self.token = nn.Parameter(torch.randn(5, 256))
+        self.token_list = nn.ParameterList([nn.Parameter(torch.randn(1, 5, 256)) for _ in range(self.stage)])
 
     def forward(
             self,
@@ -111,8 +110,8 @@ class MaskDecoder(nn.Module):
             image_pe=image_pe,
             sparse_prompt_embeddings=sparse_prompt_embeddings,
             dense_prompt_embeddings=dense_prompt_embeddings,
-            token=self.token,
-            stage=5,
+            token_list=self.token_list,
+            stage=2,
         )
 
         # Select the correct mask or masks for output
@@ -133,7 +132,7 @@ class MaskDecoder(nn.Module):
             image_pe: torch.Tensor,
             sparse_prompt_embeddings: torch.Tensor,
             dense_prompt_embeddings: torch.Tensor,
-            token: torch.Tensor,
+            token_list: nn.ParameterList,
             stage: int,
     ) -> Tuple[List, List]:
         """Predicts masks. See 'forward' for more details."""
@@ -144,18 +143,24 @@ class MaskDecoder(nn.Module):
         src = src + dense_prompt_embeddings
         pos_src = image_pe
 
-        output_tokens = torch.cat([self.iou_token.weight, self.mask_tokens.weight], dim=0)
-        output_tokens = output_tokens.unsqueeze(0).expand(sparse_prompt_embeddings.size(0), -1, -1)
-        token = nn.Parameter(torch.randn(5, 256)).to("cuda:1")
-        for _ in range(stage):
-            output_tokens = torch.add(output_tokens, token)
+        iou_token = self.iou_token.weight
+        mask_tokens = self.mask_tokens.weight
+
+        for j in range(stage):
+
+            output_tokens = torch.cat([iou_token.detach(), mask_tokens.detach()], dim=0)
+            output_tokens = output_tokens.unsqueeze(0).expand(sparse_prompt_embeddings.size(0), -1, -1)
+            if j > 0:
+                output_tokens = torch.add(output_tokens, token_list[j])
             tokens = torch.cat((output_tokens, sparse_prompt_embeddings), dim=1)
             b, c, h, w = src.shape
             hs, src_tf = self.transformer(src, pos_src, tokens)
 
             iou_token_out = hs[:, 0, :]
             mask_tokens_out = hs[:, 1: (1 + self.num_mask_tokens), :]
-            output_tokens = torch.cat([mask_tokens_out, iou_token_out.unsqueeze(1)], dim=1)
+
+            iou_token = iou_token_out
+            mask_tokens = mask_tokens_out.squeeze(0)
 
             src_tf = src_tf.transpose(1, 2).view(b, c, h, w)
             upscaled_embedding = self.output_upscaling(src_tf)

@@ -182,13 +182,10 @@ class TrainMedSam:
         )
         model.train()
         best_loss = 1e10
-        losses1 = []
-        losses2 = []
+        losses = []
         for epoch in range(self.epochs):
-            epoch_losses1 = 0
-            epoch_losses2 = 0
-            epoch_loss1 = []
-            epoch_loss2 = []
+            epoch_losses = 0
+            epoch_loss = []
             epoch_dice = []
             progress_bar = tqdm(train_loader, total=len(train_loader))
             for step, (input_image, mask, bbox) in enumerate(progress_bar):
@@ -202,21 +199,23 @@ class TrainMedSam:
                 H, W = mask.shape[-2], mask.shape[-1]
                 box = sam_trans.apply_boxes(bbox, (H, W))
                 box_tensor = torch.as_tensor(box, dtype=torch.float, device=self.device)
-                # print("========================================see parameter===========")
-                # for n, value in model.image_encoder.named_parameters():
-                #     print(n)
-                #
-                # for n, value in model.image_encoder.named_parameters():
-                #     if "Adapter" not in n:
-                #         value.requires_grad = False
+                # print("========================================see learnable parameter===========")
 
+                for n, value in model.image_encoder.named_parameters():
+                    if "Adapter" not in n:
+                        value.requires_grad = False
+
+                image_embeddings, interm_embeddings = model.image_encoder(input_image)
+                #
+                # for name, param in model.image_encoder.named_parameters():
+                #     if param.requires_grad:
+                #         print(name)
                 # Get predictioin mask
                 with torch.inference_mode():
                     # print(image.shape, 'img')
                     # (B,256,64,64)
                     # print(len(interm_embeddings), "checkout ")
                     # print(len(deformable_embeddings), 233333333333)
-                    image_embeddings, interm_embeddings = model.image_encoder(input_image)
 
                     sparse_embeddings, dense_embeddings = model.prompt_encoder(
                         points=None,
@@ -235,43 +234,35 @@ class TrainMedSam:
                     hq_token_only=True,
                     interm_embeddings=interm_embeddings,
                 )
-                # print("=======================train in decoder===========================")
-                # for name, param in model.mask_decoder.named_parameters():
-                #     if param.requires_grad:
-                #         print(name)
+                # print(mask_predictions.shape, "torch.Size([1, 1, 256, 256])")
+                # print(mask.shape, "torch.Size([1, 1, 256, 256])")
+                print("====================train decoder==========================")
+                for n, value in model.mask_decoder.named_parameters():
+                    print(n)
+                # Calculate loss
 
-                # print(len(mask_predictions), "number of masks")
-                # print(seg_loss(mask_predictions[0], mask), seg_loss(mask_predictions[1], mask))
-
-                loss1 = seg_loss(mask_predictions[0], mask)
-                loss2 = seg_loss(mask_predictions[1], mask)
-                mask_predictions = mask_predictions[0] + mask_predictions[1]
+                loss = seg_loss(mask_predictions, mask)
 
                 mask_predictions = (mask_predictions > 0.5).float()
                 dice = dice_score(mask_predictions, mask)
 
-                epoch_loss1.append(loss1.detach().item())
-                epoch_loss2.append(loss2.detach().item())
+                epoch_loss.append(loss.detach().item())
                 epoch_dice.append(dice.detach().item())
 
                 # empty gradient
                 optimizer.zero_grad()
-                loss1.backward()
-                loss2.backward()
+                loss.backward()
                 optimizer.step()
-                epoch_losses1 += loss1.item()
-                epoch_losses2 += loss2.item()
+                epoch_losses += loss.item()
                 progress_bar.set_description(f"Epoch {epoch + 1}/{self.epochs}")
                 progress_bar.set_postfix(
-                    loss1=np.mean(epoch_loss1), loss2=np.mean(epoch_loss2), dice=np.mean(epoch_dice)
+                    loss=np.mean(epoch_loss), dice=np.mean(epoch_dice)
                 )
                 progress_bar.update()
             # Evaluate every model
-            epoch_losses1 /= step
-            epoch_losses2 /= step
-            losses1.append(epoch_losses1)
-            losses2.append(epoch_losses2)
-            print(f'EPOCH: {epoch}, Loss1: {epoch_losses1}, Loss2: {epoch_losses2}')
+            epoch_losses /= step
+            losses.append(epoch_losses)
+            print(f'EPOCH: {epoch}, Loss: {epoch_losses}')
             # save the model checkpoint
             filename = 'sam_model_no_pre' + str(epoch) + '.pth'
             torch.save(
@@ -279,15 +270,15 @@ class TrainMedSam:
                 join(self.save_path, filename)
             )
             # save the best model
-            if epoch_losses1 < best_loss:
-                best_loss = epoch_losses1
+            if epoch_losses < best_loss:
+                best_loss = epoch_losses
                 torch.save(
                     model.state_dict(),
                     join(self.save_path, 'best.pth')
                 )
 
             # %% plot loss
-            plt.plot(losses1)
+            plt.plot(losses)
             plt.title('Dice + Cross Entropy Loss')
             plt.xlabel('Epoch')
             plt.ylabel('Loss')
