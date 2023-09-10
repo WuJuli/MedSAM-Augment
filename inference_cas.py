@@ -501,6 +501,7 @@ def finetune_model_predict(img_np, box_np, sam_trans, sam_model_tune, device='cu
             hq_token_only=True,
             interm_embeddings=interm_embeddings,
         )
+        medsam_seg_prob = medsam_seg_prob[1]
         medsam_seg_prob = torch.sigmoid(medsam_seg_prob)
         # convert soft mask to hard mask
         medsam_seg_prob = medsam_seg_prob.cpu().numpy().squeeze()
@@ -514,9 +515,9 @@ parser = argparse.ArgumentParser(description='run inference on testing set based
 parser.add_argument('-i', '--data_path', type=str, default='./data/Test-20230630T084040Z-001/Test',
                     help='path to the data folder')
 # save the NSD . DSC result
-parser.add_argument('-o', '--seg_path_root', type=str, default='./data/test_result/cascade-decoder-5',
+parser.add_argument('-o', '--seg_path_root', type=str, default='./data/test_result/cascade-decoder-5-mask1',
                     help='path to the segmentation folder')
-parser.add_argument('--seg_png_path', type=str, default='./data/test_result/sanity_test/cascade-decoder-5',
+parser.add_argument('--seg_png_path', type=str, default='./data/test_result/sanity_test/cascade-decoder-5-mask1',
                     help='path to the segmentation folder')
 parser.add_argument('--model_type', type=str, default='vit_b', help='model type')
 parser.add_argument('--device', type=str, default='cuda:1', help='device')

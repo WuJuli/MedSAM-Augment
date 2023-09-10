@@ -10,7 +10,7 @@ import torch.nn.functional as F
 
 from typing import Optional, Tuple, Type
 
-from .common import LayerNorm2d, MLPBlock, MultiScaleAdapterV3
+from .common import LayerNorm2d, MLPBlock, MultiScaleAdapterV4
 
 
 # This class and its supporting functions below lightly adapted from the ViTDet backbone available at: https://github.com/facebookresearch/detectron2/blob/main/detectron2/modeling/backbone/vit.py # noqa
@@ -104,16 +104,17 @@ class ImageEncoderViT(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # print(" in ada encoder")
         x = self.patch_embed(x)
         if self.pos_embed is not None:
             x = x + self.pos_embed
         interm_embeddings = []
-        for blk in self.blocks:
-            if blk.window_size == 0:
-                blk.use_adapter = True
+        for i, blk in enumerate(self.blocks):
+
             x = blk(x)
             if blk.window_size == 0:
                 interm_embeddings.append(x)
+            # print(blk.window_size, blk.use_adapter)
 
         x = self.neck(x.permute(0, 3, 1, 2))
 
@@ -169,21 +170,26 @@ class Block(nn.Module):
 
         self.window_size = window_size
 
-        self.msc_Adapter = MultiScaleAdapterV3(dim)
-        self.use_adapter = use_adapter
+        # multiscale adapter
+        self.use_adapter = False
+        self.msc_Adapter = MultiScaleAdapterV4(dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         shortcut = x
 
+        # Window partition
         if self.window_size > 0:
             H, W = x.shape[1], x.shape[2]
             x, pad_hw = window_partition(x, self.window_size)
 
         x = self.norm1(x)
         x = self.attn(x)
-        if self.use_adapter:
-            x = self.msc_Adapter(x)
+        x = self.msc_Adapter(x)
 
+        # if self.use_adapter:
+        #     x = self.msc_Adapter(x)
+
+        # Reverse window partition
         if self.window_size > 0:
             x = window_unpartition(x, self.window_size, pad_hw, (H, W))
 

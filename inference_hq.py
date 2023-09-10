@@ -514,13 +514,13 @@ parser = argparse.ArgumentParser(description='run inference on testing set based
 parser.add_argument('-i', '--data_path', type=str, default='./data/Test-20230630T084040Z-001/Test',
                     help='path to the data folder')
 # save the NSD . DSC result
-parser.add_argument('-o', '--seg_path_root', type=str, default='./data/test_result/MultiV2-2',
+parser.add_argument('-o', '--seg_path_root', type=str, default='./data/test_result/MultiV2-mlp-2',
                     help='path to the segmentation folder')
-parser.add_argument('--seg_png_path', type=str, default='./data/test_result/sanity_test/MultiV2-2',
+parser.add_argument('--seg_png_path', type=str, default='./data/test_result/sanity_test/MultiV2-mlp-2',
                     help='path to the segmentation folder')
 parser.add_argument('--model_type', type=str, default='vit_b', help='model type')
 parser.add_argument('--device', type=str, default='cuda:0', help='device')
-parser.add_argument('-chk', '--checkpoint', type=str, default='work_dir/Multi2/sam_model_no_pre1.pth',
+parser.add_argument('-chk', '--checkpoint', type=str, default='work_dir/Multi2-mlp/sam_model_no_pre1.pth',
                     help='path to the trained model')
 args = parser.parse_args()
 
