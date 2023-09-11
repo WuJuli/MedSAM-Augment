@@ -10,7 +10,7 @@ import torch.nn.functional as F
 
 from typing import Optional, Tuple, Type
 
-from .common import LayerNorm2d, MLPBlock, MultiScaleAdapter
+from .common import LayerNorm2d, MLPBlock, MultiScaleAdapterV4
 
 
 # This class and its supporting functions below lightly adapted from the ViTDet backbone available at: https://github.com/facebookresearch/detectron2/blob/main/detectron2/modeling/backbone/vit.py # noqa
@@ -102,6 +102,7 @@ class ImageEncoderViT(nn.Module):
             ),
             LayerNorm2d(out_chans),
         )
+        self.global_attn_indexes = global_attn_indexes
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # print(" in ada encoder")
@@ -110,11 +111,12 @@ class ImageEncoderViT(nn.Module):
             x = x + self.pos_embed
         interm_embeddings = []
         for i, blk in enumerate(self.blocks):
-
+            if i in self.global_attn_indexes:
+                blk.use_adapter = True
             x = blk(x)
             if blk.window_size == 0:
                 interm_embeddings.append(x)
-            # print(blk.window_size, blk.use_adapter)
+            # print(i, blk.window_size, blk.use_adapter)
 
         x = self.neck(x.permute(0, 3, 1, 2))
 
@@ -137,7 +139,6 @@ class Block(nn.Module):
             window_size: int = 0,
             input_size: Optional[Tuple[int, int]] = None,
             use_adapter: bool = False,
-            scale: float = 0.5,
     ) -> None:
         """
         Args:
@@ -171,8 +172,8 @@ class Block(nn.Module):
         self.window_size = window_size
 
         # multiscale adapter
-        self.use_adapter = False
-        self.msc_Adapter = MultiScaleAdapter(dim)
+        self.use_adapter = use_adapter
+        self.msc_Adapter = MultiScaleAdapterV4(dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         shortcut = x
@@ -184,10 +185,9 @@ class Block(nn.Module):
 
         x = self.norm1(x)
         x = self.attn(x)
-        x = self.msc_Adapter(x)
 
-        # if self.use_adapter:
-        #     x = self.msc_Adapter(x)
+        if self.use_adapter:
+            x = self.msc_Adapter(x)
 
         # Reverse window partition
         if self.window_size > 0:

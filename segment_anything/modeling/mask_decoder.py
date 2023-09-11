@@ -131,13 +131,14 @@ class MaskDecoder(nn.Module):
         image_pe = torch.repeat_interleave(image_pe, batch_len, dim=0)
         masks = []
         iou_preds = []
-        # print("mask deocoder!!!------------------------")
+        print("mask deocoder HQ!!!------------------------")
         # print(vit_features.shape, "8888")
-        # print(image_embeddings.shape)
+        print(image_embeddings.shape, "torch.Size([1, 256, 64, 64])")
         # print(image_pe.shape)
         # print(sparse_prompt_embeddings.shape)
         # print(dense_prompt_embeddings.shape)
-        # print(len(interm_embeddings))
+        print(len(interm_embeddings), "4")
+        print(interm_embeddings[0].shape, "torch.Size([1, 64, 64, 768]) ")
         for i_batch in range(batch_len):
             mask, iou_pred = self.predict_masks(
                 image_embeddings=image_embeddings[i_batch].unsqueeze(0),
@@ -183,6 +184,7 @@ class MaskDecoder(nn.Module):
             hq_features: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Predicts masks. See 'forward' for more details."""
+        print("-------------------in mask decoder--------------------------")
         # Concatenate output tokens
         output_tokens = torch.cat([self.iou_token.weight, self.mask_tokens.weight, self.hf_token.weight], dim=0)
         output_tokens = output_tokens.unsqueeze(0).expand(sparse_prompt_embeddings.size(0), -1, -1)
@@ -204,6 +206,7 @@ class MaskDecoder(nn.Module):
 
         upscaled_embedding_sam = self.output_upscaling(src)
         upscaled_embedding_hq = self.embedding_maskfeature(upscaled_embedding_sam) + hq_features.repeat(b, 1, 1, 1)
+        print(upscaled_embedding_hq.shape, "torch.Size([1, 32, 256, 256]) ")
 
         hyper_in_list: List[torch.Tensor] = []
         for i in range(self.num_mask_tokens):
