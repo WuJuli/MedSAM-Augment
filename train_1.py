@@ -206,7 +206,6 @@ class TrainMedSam:
                         value.requires_grad = False
 
                 image_embeddings, interm_embeddings = model.image_encoder(input_image)
-                #
                 # for name, param in model.image_encoder.named_parameters():
                 #     if param.requires_grad:
                 #         print(name)

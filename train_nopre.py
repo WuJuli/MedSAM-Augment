@@ -203,9 +203,9 @@ class TrainMedSam:
                 for n, value in model.image_encoder.named_parameters():
                     if "Adapter" not in n:
                         value.requires_grad = False
-                # for name, param in model.image_encoder.named_parameters():
-                #     if param.requires_grad:
-                #         print(name)
+                for name, param in model.image_encoder.named_parameters():
+                    if param.requires_grad:
+                        print(name)
                 image_embeddings, interm_embeddings = model.image_encoder(input_image)
 
                 # Get predictioin mask
