@@ -279,8 +279,6 @@ class TrainMedSam:
         model.train()
         best_loss = 1e10
         losses = []
-        losses1 = []
-        losses2 = []
 
         for epoch in range(self.epochs):
             epoch_losses = 0
@@ -295,8 +293,12 @@ class TrainMedSam:
                 box_tensor = torch.as_tensor(box, dtype=torch.float, device=self.device)
 
                 mask_preA, mask_preB, mask_preC, mask_pre = model(input_image, box_tensor)
-                loss = [seg_loss(mask_pre, mask) for mask_pre in (mask_preA, mask_preB, mask_preC, mask_pre)]
-                loss = torch.mean(torch.stack(loss))
+
+                weights = [1.6, 1, 0.8, 0.6]
+                weighted_losses = [weight * seg_loss(mask_pre, mask) for weight, mask_pre in
+                                   zip(weights, (mask_preA, mask_preB, mask_preC, mask_pre))]
+
+                loss = torch.sum(torch.stack(weighted_losses))
 
                 mask_predictions = mask_preA
                 mask_predictions = (mask_predictions > 0.5).float()
@@ -362,7 +364,7 @@ if __name__ == '__main__':
         "--lr", type=float, required=False, default=1e-5, help="learning rate"
     )
     parser.add_argument(
-        "--batch_size", type=int, required=False, default=4, help="batch size"
+        "--batch_size", type=int, required=False, default=1, help="batch size"
     )
     parser.add_argument("--model_type", default="vit_b", type=str, required=False)
     parser.add_argument(

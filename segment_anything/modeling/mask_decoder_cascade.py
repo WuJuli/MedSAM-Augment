@@ -78,12 +78,12 @@ class MaskDecoderHQ(nn.Module):
             LayerNorm2d(transformer_dim // 4),
             nn.GELU(),
             nn.Conv2d(transformer_dim // 4, transformer_dim // 8, 3, 1, 1))
-        self.output_embedding = nn.Conv2d(
-            in_channels=32,  #
-            out_channels=256,
-            kernel_size=4,
-            stride=4,
-            padding=1
+
+        self.embedding_output = nn.Sequential(
+            nn.Conv2d(transformer_dim // 8, transformer_dim // 4, kernel_size=3, stride=2, padding=1),
+            LayerNorm2d(transformer_dim // 4),
+            nn.GELU(),
+            nn.Conv2d(transformer_dim // 4, transformer_dim, kernel_size=3, stride=2, padding=1)
         )
 
     def forward(
@@ -181,7 +181,7 @@ class MaskDecoderHQ(nn.Module):
 
         upscaled_embedding_sam = self.output_upscaling(src)
         upscaled_embedding_hq = self.embedding_maskfeature_hf(upscaled_embedding_sam) + hq_features.repeat(b, 1, 1, 1)
-        output_embeddings = self.output_embedding(upscaled_embedding_hq)
+        output_embeddings = self.embedding_output(upscaled_embedding_hq)
         hyper_in_list: List[torch.Tensor] = []
         for i in range(self.num_mask_tokens):
             if i < self.num_mask_tokens - 1:
@@ -263,12 +263,11 @@ class MaskDecoder(nn.Module):
             transformer_dim, iou_head_hidden_dim, self.num_mask_tokens, iou_head_depth
         )
 
-        self.output_embedding = nn.Conv2d(
-            in_channels=32,  #
-            out_channels=256,
-            kernel_size=4,
-            stride=4,
-            padding=1
+        self.embedding_output = nn.Sequential(
+            nn.Conv2d(transformer_dim // 8, transformer_dim // 4, kernel_size=3, stride=2, padding=1),
+            LayerNorm2d(transformer_dim // 4),
+            nn.GELU(),
+            nn.Conv2d(transformer_dim // 4, transformer_dim, kernel_size=3, stride=2, padding=1)
         )
 
     def forward(
@@ -322,12 +321,8 @@ class MaskDecoder(nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Predicts masks. See 'forward' for more details."""
         # Concatenate output tokens
-        output_tokens = torch.cat(
-            [self.iou_token.weight, self.mask_tokens.weight], dim=0
-        )
-        output_tokens = output_tokens.unsqueeze(0).expand(
-            sparse_prompt_embeddings.size(0), -1, -1
-        )
+        output_tokens = torch.cat([self.iou_token.weight, self.mask_tokens.weight], dim=0)
+        output_tokens = output_tokens.unsqueeze(0).expand(sparse_prompt_embeddings.size(0), -1, -1)
         tokens = torch.cat((output_tokens, sparse_prompt_embeddings), dim=1)
 
         # Expand per-image data in batch direction to be per-mask
@@ -348,14 +343,12 @@ class MaskDecoder(nn.Module):
         src = src.transpose(1, 2).view(b, c, h, w)
         upscaled_embedding = self.output_upscaling(src)
         # print(upscaled_embedding.shape, 77)
-        output_embeddings = self.output_embedding(upscaled_embedding)
+        output_embeddings = self.embedding_output(upscaled_embedding)
         # print(output_embeddings.shape, 666)
 
         hyper_in_list: List[torch.Tensor] = []
         for i in range(self.num_mask_tokens):
-            hyper_in_list.append(
-                self.output_hypernetworks_mlps[i](mask_tokens_out[:, i, :])
-            )
+            hyper_in_list.append(self.output_hypernetworks_mlps[i](mask_tokens_out[:, i, :]))
         hyper_in = torch.stack(hyper_in_list, dim=1)
         b, c, h, w = upscaled_embedding.shape
         masks = (hyper_in @ upscaled_embedding.view(b, c, h * w)).view(b, -1, h, w)
