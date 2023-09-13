@@ -199,31 +199,19 @@ class TrainMedSam:
                 H, W = mask.shape[-2], mask.shape[-1]
                 box = sam_trans.apply_boxes(bbox, (H, W))
                 box_tensor = torch.as_tensor(box, dtype=torch.float, device=self.device)
-                # print("========================================see learnable parameter===========")
 
-                for n, value in model.image_encoder.named_parameters():
-                    if "Adapter" not in n:
-                        value.requires_grad = False
-
-                image_embeddings, interm_embeddings = model.image_encoder(input_image)
-                # for name, param in model.image_encoder.named_parameters():
-                #     if param.requires_grad:
-                #         print(name)
-                # Get predictioin mask
                 with torch.inference_mode():
-                    # print(image.shape, 'img')
-                    # (B,256,64,64)
-                    # print(len(interm_embeddings), "checkout ")
-                    # print(len(deformable_embeddings), 233333333333)
-
+                    image_embeddings, interm_embeddings = model.image_encoder(input_image)
                     sparse_embeddings, dense_embeddings = model.prompt_encoder(
                         points=None,
                         boxes=box_tensor,
                         masks=None,
                     )
-                # print(image_embeddings.shape, model.prompt_encoder.get_dense_pe().shape, sparse_embeddings.shape,
-                #       dense_embeddings.shape)
-                # ([4, 256, 64, 64])([1, 256, 64, 64])[4, 2, 256][4, 256, 64, 64]
+
+                for n, value in model.mask_decoder.named_parameters():
+                    if "hf" not in n:
+                        value.requires_grad = False
+
                 mask_predictions, _ = model.mask_decoder(
                     image_embeddings=image_embeddings.to(self.device),  # (B, 256, 64, 64)
                     image_pe=model.prompt_encoder.get_dense_pe(),  # (1, 256, 64, 64)
@@ -233,13 +221,7 @@ class TrainMedSam:
                     hq_token_only=True,
                     interm_embeddings=interm_embeddings,
                 )
-                # print(mask_predictions.shape, "torch.Size([1, 1, 256, 256])")
-                # print(mask.shape, "torch.Size([1, 1, 256, 256])")
-                # print("====================train==========================")
-                # for n, value in model.mask_decoder.named_parameters():
-                #     print(n)
                 # Calculate loss
-
                 loss = seg_loss(mask_predictions, mask)
 
                 mask_predictions = (mask_predictions > 0.5).float()
@@ -297,7 +279,7 @@ if __name__ == '__main__':
         help="the path to original .npz files"
     )
     parser.add_argument('--work_dir', type=str, default='./work_dir')
-    parser.add_argument('--task_name', type=str, default='test')
+    parser.add_argument('--task_name', type=str, default='testt_stage')
     parser.add_argument(
         "--num_epochs", type=int, required=False, default=50, help="number of epochs"
     )
@@ -305,7 +287,7 @@ if __name__ == '__main__':
         "--lr", type=float, required=False, default=1e-5, help="learning rate"
     )
     parser.add_argument(
-        "--batch_size", type=int, required=False, default=1, help="batch size"
+        "--batch_size", type=int, required=False, default=2, help="batch size"
     )
     parser.add_argument("--model_type", default="vit_b", type=str, required=False)
     parser.add_argument(

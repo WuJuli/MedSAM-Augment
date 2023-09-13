@@ -31,7 +31,7 @@ class NpzDataset(Dataset):
                  npz_path,
                  pixel_mean: List[float] = [123.675, 116.28, 103.53],
                  pixel_std: List[float] = [58.395, 57.12, 57.375],
-                 device='cuda:0'
+                 device='cuda:1'
                  ):
         self.npz_path = npz_path
         self.npz_files = sorted(os.listdir(self.npz_path))
@@ -67,7 +67,6 @@ class NpzDataset(Dataset):
         y_min = max(0, y_min - np.random.randint(0, 20))
         y_max = min(H, y_max + np.random.randint(0, 20))
         bboxes = np.array([x_min, y_min, x_max, y_max])
-
         # convert img embedding, mask, bounding box to torch tensor
         # print(input_image.shape, "233333")
         return input_image[0], torch.tensor(gt[None, :, :]).long(), torch.tensor(bboxes).float()
@@ -121,10 +120,10 @@ class TrainMedSam:
 
     def __init__(
             self,
-            lr: float = 1e-4,
+            lr: float = 1e-5,
             batch_size: int = 4,
             epochs: int = 50,
-            device: str = "cuda:0",
+            device: str = "cuda:1",
             model_type: str = "vit_b",
             checkpoint: str = "work_dir/SAM/sam_vit_b_01ec64.pth",
             save_path: str = "work_dir/no_npz",
@@ -200,26 +199,48 @@ class TrainMedSam:
                 H, W = mask.shape[-2], mask.shape[-1]
                 box = sam_trans.apply_boxes(bbox, (H, W))
                 box_tensor = torch.as_tensor(box, dtype=torch.float, device=self.device)
+                # print("========================================see learnable parameter===========")
 
+                for n, value in model.image_encoder.named_parameters():
+                    if "Adapter" not in n:
+                        value.requires_grad = False
+
+                image_embeddings, interm_embeddings = model.image_encoder(input_image)
+                #
+                # for name, param in model.image_encoder.named_parameters():
+                #     if param.requires_grad:
+                #         print(name)
                 # Get predictioin mask
                 with torch.inference_mode():
                     # print(image.shape, 'img')
-                    image_embeddings = model.image_encoder(input_image)  # (B,256,64,64)
+                    # (B,256,64,64)
+                    # print(len(interm_embeddings), "checkout ")
+                    # print(len(deformable_embeddings), 233333333333)
 
                     sparse_embeddings, dense_embeddings = model.prompt_encoder(
                         points=None,
                         boxes=box_tensor,
                         masks=None,
                     )
-
+                # print(image_embeddings.shape, model.prompt_encoder.get_dense_pe().shape, sparse_embeddings.shape,
+                #       dense_embeddings.shape)
+                # ([4, 256, 64, 64])([1, 256, 64, 64])[4, 2, 256][4, 256, 64, 64]
                 mask_predictions, _ = model.mask_decoder(
                     image_embeddings=image_embeddings.to(self.device),  # (B, 256, 64, 64)
                     image_pe=model.prompt_encoder.get_dense_pe(),  # (1, 256, 64, 64)
                     sparse_prompt_embeddings=sparse_embeddings,  # (B, 2, 256)
                     dense_prompt_embeddings=dense_embeddings,  # (B, 256, 64, 64)
                     multimask_output=False,
+                    hq_token_only=True,
+                    interm_embeddings=interm_embeddings,
                 )
+                # print(mask_predictions.shape, "torch.Size([1, 1, 256, 256])")
+                # print(mask.shape, "torch.Size([1, 1, 256, 256])")
+                print("====================train decoder==========================")
+                for n, value in model.mask_decoder.named_parameters():
+                    print(n)
                 # Calculate loss
+
                 loss = seg_loss(mask_predictions, mask)
 
                 mask_predictions = (mask_predictions > 0.5).float()
@@ -279,13 +300,13 @@ if __name__ == '__main__':
     parser.add_argument('--work_dir', type=str, default='./work_dir')
     parser.add_argument('--task_name', type=str, default='test')
     parser.add_argument(
-        "--num_epochs", type=int, required=False, default=5, help="number of epochs"
+        "--num_epochs", type=int, required=False, default=50, help="number of epochs"
     )
     parser.add_argument(
         "--lr", type=float, required=False, default=1e-5, help="learning rate"
     )
     parser.add_argument(
-        "--batch_size", type=int, required=False, default=4, help="batch size"
+        "--batch_size", type=int, required=False, default=1, help="batch size"
     )
     parser.add_argument("--model_type", default="vit_b", type=str, required=False)
     parser.add_argument(
