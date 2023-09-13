@@ -294,7 +294,7 @@ class TrainMedSam:
 
                 mask_preA, mask_preB, mask_preC, mask_pre = model(input_image, box_tensor)
 
-                weights = [1.6, 1, 0.8, 0.6]
+                weights = [1, 1, 1, 1]
                 weighted_losses = [weight * seg_loss(mask_pre, mask) for weight, mask_pre in
                                    zip(weights, (mask_preA, mask_preB, mask_preC, mask_pre))]
 
