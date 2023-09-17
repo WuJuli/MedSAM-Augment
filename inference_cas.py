@@ -7,6 +7,8 @@ import torch
 import torch.nn as nn
 from segment_anything import sam_model_registry
 from segment_anything.utils.transforms import ResizeLongestSide
+
+from segment_anything.modeling import MaskDecoderHQ, TwoWayTransformer
 from scipy.spatial.distance import directed_hausdorff
 from tqdm import tqdm
 import argparse
@@ -21,16 +23,41 @@ class MedSAM(nn.Module):
             image_encoder,
             mask_decoder,
             prompt_encoder,
-            mask_decoderHQ_A,
-            mask_decoderHQ_B,
-            mask_decoderHQ_C,
     ):
         super().__init__()
         self.image_encoder = image_encoder
         self.mask_decoder = mask_decoder
-        self.mask_decoderHQ_A = mask_decoderHQ_A
-        self.mask_decoderHQ_B = mask_decoderHQ_B
-        self.mask_decoderHQ_C = mask_decoderHQ_C
+
+        def create_mask_decoder_HQ(model_type="vit_b"):
+            assert model_type in ["vit_b", "vit_l", "vit_h"]
+            checkpoint_dict = {
+                "vit_b": "work_dir/SAM/sam_vit_b_maskdecoder.pth",
+            }
+            if model_type not in checkpoint_dict:
+                raise ValueError(f"Invalid model_type: {model_type}")
+            checkpoint_path = checkpoint_dict[model_type]
+            state_dict = torch.load(checkpoint_path)
+            mask_decoder_HQ = MaskDecoderHQ(
+                num_multimask_outputs=3,
+                transformer=TwoWayTransformer(
+                    depth=2,
+                    embedding_dim=256,
+                    mlp_dim=2048,
+                    num_heads=8,
+                ),
+                transformer_dim=256,
+                iou_head_depth=3,
+                iou_head_hidden_dim=256,
+                vit_dim=768,
+            )
+
+            mask_decoder_HQ.load_state_dict(state_dict, strict=False)
+
+            return mask_decoder_HQ
+
+        self.mask_decoderHQ_A = create_mask_decoder_HQ()
+        self.mask_decoderHQ_B = create_mask_decoder_HQ()
+        self.mask_decoderHQ_C = create_mask_decoder_HQ()
         self.prompt_encoder = prompt_encoder
 
     def forward(self, image, box_tensor):
@@ -537,17 +564,29 @@ def compute_surface_dice_at_tolerance(surface_distances, tolerance_mm):
     return surface_dice
 
 
-def finetune_model_predict(input_image, box_tensor, sam_model_tune, device='cuda:1'):
-    medsam_model = MedSAM(
-        image_encoder=sam_model_tune.image_encoder,
-        prompt_encoder=sam_model_tune.prompt_encoder,
-        mask_decoder=sam_model_tune.mask_decoder,
-        mask_decoderHQ_A=sam_model_tune.mask_decoderHQ_A,
-        mask_decoderHQ_B=sam_model_tune.mask_decoderHQ_B,
-        mask_decoderHQ_C=sam_model_tune.mask_decoderHQ_C
-    ).to(device)
+def finetune_model_predict(img_np, box_np, sam_trans, sam_model_tune, device='cuda:1'):
+    H, W = img_np.shape[:2]
+    img_np = img_np.astype(np.uint8)
+
+    resize_img = sam_trans.apply_image(img_np)
+    resize_img_tensor = torch.as_tensor(resize_img.transpose(2, 0, 1)).to(device)
+    input_image = sam_model_tune.preprocess(resize_img_tensor[None, :, :, :])  # (1, 3, 1024, 1024)
     with torch.no_grad():
-        medsam_seg_prob = medsam_model(input_image, box_tensor)
+        box = sam_trans.apply_boxes(box_np, (H, W))
+        box_torch = torch.as_tensor(box, dtype=torch.float, device=device)
+        if len(box_torch.shape) == 2:
+            box_torch = box_torch[:, None, :]  # (B, 1, 4)
+
+        medsam_model = MedSAM(
+            image_encoder=sam_model_tune.image_encoder,
+            prompt_encoder=sam_model_tune.prompt_encoder,
+            mask_decoder=sam_model_tune.mask_decoder,
+        ).to(device)
+        medsam_model.load_state_dict(torch.load("work_dir/Cascade-mask-V2/sam_model_no_pre4.pth"))
+
+        medsam_model.eval()
+
+        medsam_seg_prob = medsam_model(input_image.to(device), box_torch)
         medsam_seg_prob = torch.sigmoid(medsam_seg_prob)
         medsam_seg_prob = medsam_seg_prob.cpu().numpy().squeeze()
         medsam_seg = (medsam_seg_prob > 0.5).astype(np.uint8)
@@ -559,25 +598,19 @@ def finetune_model_predict(input_image, box_tensor, sam_model_tune, device='cuda
 parser = argparse.ArgumentParser(description='run inference on testing set based on MedSAM')
 parser.add_argument('-i', '--data_path', type=str, default='./data/Test-20230630T084040Z-001/Test',
                     help='path to the data folder')
-parser.add_argument('-o', '--seg_path_root', type=str, default='./data/test_result/Cascade-mask4-2',
+parser.add_argument('-o', '--seg_path_root', type=str, default='./data/test_result/Cascade-mask-V2-5',
                     help='path to the segmentation folder')
-parser.add_argument('--seg_png_path', type=str, default='./data/test_result/sanity_test/Cascade-mask4-2',
+parser.add_argument('--seg_png_path', type=str, default='./data/test_result/sanity_test/Cascade-mask-V2-5',
                     help='path to the segmentation folder')
 parser.add_argument('--model_type', type=str, default='vit_b', help='model type')
 parser.add_argument('--device', type=str, default='cuda:1', help='device')
-parser.add_argument('-chk', '--checkpoint', type=str, default='work_dir/Cascade-mask4/sam_model_no_pre1.pth',
+parser.add_argument('-chk', '--checkpoint', type=str, default='work_dir/Cascade-mask-V2/sam_model_no_pre4.pth',
                     help='path to the trained model')
 args = parser.parse_args()
 
 # % load MedSAM model
 device = args.device
 sam_model_tune = sam_model_registry[args.model_type](checkpoint=args.checkpoint).to(device)
-# state_dict = sam_model_tune.state_dict()
-# print("==========================names================")
-# # Print the parameter names
-# for param_name in state_dict:
-#     print(param_name)
-
 sam_trans = ResizeLongestSide(sam_model_tune.image_encoder.img_size)
 
 npz_folders = sorted(os.listdir(args.data_path))
@@ -621,19 +654,7 @@ for npz_folder in npz_folders:
                     y_max = min(H, y_max + np.random.randint(0, 20))
                     bbox = np.array([x_min, y_min, x_max, y_max])
 
-                    H, W = ori_img.shape[:2]
-                    img_np = ori_img.astype(np.uint8)
-
-                    resize_img = sam_trans.apply_image(img_np)
-                    resize_img_tensor = torch.as_tensor(resize_img.transpose(2, 0, 1)).to(device)
-                    input_image = sam_model_tune.preprocess(resize_img_tensor[None, :, :, :])  # (1, 3, 1024, 1024)
-
-                    box = sam_trans.apply_boxes(bbox, (H, W))
-                    box_torch = torch.as_tensor(box, dtype=torch.float, device=device)
-                    if len(box_torch.shape) == 2:
-                        box_torch = box_torch[:, None, :]  # (B, 1, 4)
-
-                    seg_mask = finetune_model_predict(input_image, box_torch, sam_model_tune, device=device)
+                    seg_mask = finetune_model_predict(ori_img, bbox, sam_trans, sam_model_tune, device=device)
                     sam_segs.append(seg_mask)
                     # print(seg_mask.shape, "mask shape")
                     # print(np.array(sam_segs).shape, "seg shape")

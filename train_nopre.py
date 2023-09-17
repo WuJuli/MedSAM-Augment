@@ -203,9 +203,9 @@ class TrainMedSam:
                 for n, value in model.image_encoder.named_parameters():
                     if "Adapter" not in n:
                         value.requires_grad = False
-                for name, param in model.image_encoder.named_parameters():
-                    if param.requires_grad:
-                        print(name)
+                # for name, param in model.image_encoder.named_parameters():
+                #     if param.requires_grad:
+                #         print(name)
                 image_embeddings, interm_embeddings = model.image_encoder(input_image)
 
                 # Get predictioin mask
@@ -250,6 +250,11 @@ class TrainMedSam:
                     loss=np.mean(epoch_loss), dice=np.mean(epoch_dice)
                 )
                 progress_bar.update()
+                filename = '6sam_model_no_pre' + str(epoch) + '.pth'
+                torch.save(
+                    model.state_dict(),
+                    join(self.save_path, filename)
+                )
             # Evaluate every model
             epoch_losses /= step
             losses.append(epoch_losses)

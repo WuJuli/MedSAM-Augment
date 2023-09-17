@@ -44,7 +44,7 @@ class NpzDataset(Dataset):
                  npz_path,
                  pixel_mean: List[float] = [123.675, 116.28, 103.53],
                  pixel_std: List[float] = [58.395, 57.12, 57.375],
-                 device='cuda:1'
+                 device='cuda:0'
                  ):
         self.npz_path = npz_path
         self.npz_files = sorted(os.listdir(self.npz_path))
@@ -149,8 +149,6 @@ class MedSAM(nn.Module):
             return mask_decoder_HQ
 
         self.mask_decoderHQ_A = create_mask_decoder_HQ()
-        self.mask_decoderHQ_B = create_mask_decoder_HQ()
-        self.mask_decoderHQ_C = create_mask_decoder_HQ()
         self.prompt_encoder = prompt_encoder
 
         # freeze the image encoder except the Adapter
@@ -160,20 +158,9 @@ class MedSAM(nn.Module):
         # freeze prompt encoder
         for param in self.prompt_encoder.parameters():
             param.requires_grad = False
-        # freeze the mask decoderHQ except HQ part
-        # for n, value in self.mask_decoderHQ_A.named_parameters():
-        #     if "hf" not in n:
-        #         value.requires_grad = False
-        # for n, value in self.mask_decoderHQ_B.named_parameters():
-        #     if "hf" not in n:
-        #         value.requires_grad = False
-        # for n, value in self.mask_decoderHQ_C.named_parameters():
-        #     if "hf" not in n:
-        #         value.requires_grad = False
 
     def forward(self, image, box_tensor):
         image_embedding, interm_embeddings = self.image_encoder(image)  # (B, 256, 64, 64)
-
         with torch.no_grad():
             sparse_embeddings, dense_embeddings = self.prompt_encoder(
                 points=None,
@@ -187,26 +174,9 @@ class MedSAM(nn.Module):
             dense_prompt_embeddings=dense_embeddings,  # (B, 256, 64, 64)
             multimask_output=False,
         )
-        maskC, _, out_embeddingsC = self.mask_decoderHQ_C(
-            image_embeddings=out_embeddings,  # (B, 256, 64, 64)
-            image_pe=self.prompt_encoder.get_dense_pe(),  # (1, 256, 64, 64)
-            sparse_prompt_embeddings=sparse_embeddings,  # (B, 2, 256)
-            dense_prompt_embeddings=dense_embeddings,  # (B, 256, 64, 64)
-            multimask_output=False,
-            hq_token_only=True,
-            interm_embeddings=interm_embeddings[2],
-        )
-        maskB, _, out_embeddingsB = self.mask_decoderHQ_B(
-            image_embeddings=out_embeddingsC,  # (B, 256, 64, 64)
-            image_pe=self.prompt_encoder.get_dense_pe(),  # (1, 256, 64, 64)
-            sparse_prompt_embeddings=sparse_embeddings,  # (B, 2, 256)
-            dense_prompt_embeddings=dense_embeddings,  # (B, 256, 64, 64)
-            multimask_output=False,
-            hq_token_only=True,
-            interm_embeddings=interm_embeddings[1],
-        )
+
         maskA, _, _ = self.mask_decoderHQ_A(
-            image_embeddings=out_embeddingsB,  # (B, 256, 64, 64)
+            image_embeddings=out_embeddings,  # (B, 256, 64, 64)
             image_pe=self.prompt_encoder.get_dense_pe(),  # (1, 256, 64, 64)
             sparse_prompt_embeddings=sparse_embeddings,  # (B, 2, 256)
             dense_prompt_embeddings=dense_embeddings,  # (B, 256, 64, 64)
@@ -218,7 +188,7 @@ class MedSAM(nn.Module):
         #     if param.requires_grad:
         #         print(name)
 
-        return maskA, maskB, maskC, masks
+        return maskA, masks
 
 
 class TrainMedSam:
@@ -230,7 +200,7 @@ class TrainMedSam:
             lr: float = 1e-5,
             batch_size: int = 4,
             epochs: int = 50,
-            device: str = "cuda:1",
+            device: str = "cuda:0",
             model_type: str = "vit_b",
             checkpoint: str = "work_dir/SAM/sam_vit_b_01ec64.pth",
             save_path: str = "work_dir/no_npz",
@@ -292,13 +262,9 @@ class TrainMedSam:
                 box = sam_trans.apply_boxes(bbox, (H, W))
                 box_tensor = torch.as_tensor(box, dtype=torch.float, device=self.device)
 
-                mask_preA, mask_preB, mask_preC, mask_pre = model(input_image, box_tensor)
+                mask_preA, mask_pre = model(input_image, box_tensor)
 
-                weights = [1, 1, 1, 1]
-                weighted_losses = [weight * seg_loss(mask_pre, mask) for weight, mask_pre in
-                                   zip(weights, (mask_preA, mask_preB, mask_preC, mask_pre))]
-
-                loss = torch.sum(torch.stack(weighted_losses))
+                loss = seg_loss(mask_preA, mask) + seg_loss(mask_pre, mask)
 
                 mask_predictions = mask_preA
                 mask_predictions = (mask_predictions > 0.5).float()
