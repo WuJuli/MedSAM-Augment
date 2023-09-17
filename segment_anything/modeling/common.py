@@ -15,7 +15,7 @@ from operator import mul
 from functools import reduce
 
 
-class MultiScaleAdapterNew(nn.Module):
+class MultiScaleAdapterLight(nn.Module):
     def __init__(self, D_features, skip_connect=True):
         super().__init__()
         self.skip_connect = skip_connect
