@@ -56,8 +56,6 @@ class MedSAM(nn.Module):
             return mask_decoder_HQ
 
         self.mask_decoderHQ_A = create_mask_decoder_HQ()
-        self.mask_decoderHQ_B = create_mask_decoder_HQ()
-        self.mask_decoderHQ_C = create_mask_decoder_HQ()
         self.prompt_encoder = prompt_encoder
 
     def forward(self, image, box_tensor):
@@ -75,26 +73,9 @@ class MedSAM(nn.Module):
                 dense_prompt_embeddings=dense_embeddings,  # (B, 256, 64, 64)
                 multimask_output=False,
             )
-            maskC, _, out_embeddingsC = self.mask_decoderHQ_C(
-                image_embeddings=out_embeddings,  # (B, 256, 64, 64)
-                image_pe=self.prompt_encoder.get_dense_pe(),  # (1, 256, 64, 64)
-                sparse_prompt_embeddings=sparse_embeddings,  # (B, 2, 256)
-                dense_prompt_embeddings=dense_embeddings,  # (B, 256, 64, 64)
-                multimask_output=False,
-                hq_token_only=True,
-                interm_embeddings=interm_embeddings[2],
-            )
-            maskB, _, out_embeddingsB = self.mask_decoderHQ_B(
-                image_embeddings=out_embeddingsC,  # (B, 256, 64, 64)
-                image_pe=self.prompt_encoder.get_dense_pe(),  # (1, 256, 64, 64)
-                sparse_prompt_embeddings=sparse_embeddings,  # (B, 2, 256)
-                dense_prompt_embeddings=dense_embeddings,  # (B, 256, 64, 64)
-                multimask_output=False,
-                hq_token_only=True,
-                interm_embeddings=interm_embeddings[1],
-            )
+
             maskA, _, _ = self.mask_decoderHQ_A(
-                image_embeddings=out_embeddingsB,  # (B, 256, 64, 64)
+                image_embeddings=out_embeddings,  # (B, 256, 64, 64)
                 image_pe=self.prompt_encoder.get_dense_pe(),  # (1, 256, 64, 64)
                 sparse_prompt_embeddings=sparse_embeddings,  # (B, 2, 256)
                 dense_prompt_embeddings=dense_embeddings,  # (B, 256, 64, 64)
@@ -582,7 +563,7 @@ def finetune_model_predict(img_np, box_np, sam_trans, sam_model_tune, device='cu
             prompt_encoder=sam_model_tune.prompt_encoder,
             mask_decoder=sam_model_tune.mask_decoder,
         ).to(device)
-        medsam_model.load_state_dict(torch.load("work_dir/Cascade-mask-V2/sam_model_no_pre4.pth"))
+        medsam_model.load_state_dict(torch.load("work_dir/Cascade2-multiV4/sam_model_no_pre4.pth"))
 
         medsam_model.eval()
 
@@ -598,13 +579,13 @@ def finetune_model_predict(img_np, box_np, sam_trans, sam_model_tune, device='cu
 parser = argparse.ArgumentParser(description='run inference on testing set based on MedSAM')
 parser.add_argument('-i', '--data_path', type=str, default='./data/Test-20230630T084040Z-001/Test',
                     help='path to the data folder')
-parser.add_argument('-o', '--seg_path_root', type=str, default='./data/test_result/Cascade-mask-V2-5',
+parser.add_argument('-o', '--seg_path_root', type=str, default='./data/test_result/C2M4-5',
                     help='path to the segmentation folder')
-parser.add_argument('--seg_png_path', type=str, default='./data/test_result/sanity_test/Cascade-mask-V2-5',
+parser.add_argument('--seg_png_path', type=str, default='./data/test_result/sanity_test/C2M4-5',
                     help='path to the segmentation folder')
 parser.add_argument('--model_type', type=str, default='vit_b', help='model type')
 parser.add_argument('--device', type=str, default='cuda:1', help='device')
-parser.add_argument('-chk', '--checkpoint', type=str, default='work_dir/Cascade-mask-V2/sam_model_no_pre4.pth',
+parser.add_argument('-chk', '--checkpoint', type=str, default='work_dir/Cascade2-multiV4/sam_model_no_pre4.pth',
                     help='path to the trained model')
 args = parser.parse_args()
 

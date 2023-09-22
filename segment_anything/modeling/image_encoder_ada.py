@@ -10,7 +10,7 @@ import torch.nn.functional as F
 
 from typing import Optional, Tuple, Type
 
-from .common import LayerNorm2d, MLPBlock, MultiScaleAdapterLight
+from .common import LayerNorm2d, MLPBlock, MultiScaleAdapterV4
 
 
 # This class and its supporting functions below lightly adapted from the ViTDet backbone available at: https://github.com/facebookresearch/detectron2/blob/main/detectron2/modeling/backbone/vit.py # noqa
@@ -172,7 +172,7 @@ class Block(nn.Module):
 
         # multiscale adapter
         self.use_adapter = False
-        self.msc_Adapter = MultiScaleAdapterLight(dim)
+        self.msc_Adapter = MultiScaleAdapterV4(dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         shortcut = x

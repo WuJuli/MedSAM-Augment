@@ -167,7 +167,7 @@ class MedSAM(nn.Module):
                 boxes=box_tensor,
                 masks=None,
             )
-        masks, _, out_embeddings = self.mask_decoder(
+        masks, _, out_embeddings, trans_token = self.mask_decoder(
             image_embeddings=image_embedding,  # (B, 256, 64, 64)
             image_pe=self.prompt_encoder.get_dense_pe(),  # (1, 256, 64, 64)
             sparse_prompt_embeddings=sparse_embeddings,  # (B, 2, 256)
@@ -175,14 +175,16 @@ class MedSAM(nn.Module):
             multimask_output=False,
         )
 
-        maskA, _, _ = self.mask_decoderHQ_A(
-            image_embeddings=out_embeddings,  # (B, 256, 64, 64)
+        maskA, _ = self.mask_decoderHQ_A(
+            image_embeddings=image_embedding,  # (B, 256, 64, 64)
             image_pe=self.prompt_encoder.get_dense_pe(),  # (1, 256, 64, 64)
             sparse_prompt_embeddings=sparse_embeddings,  # (B, 2, 256)
             dense_prompt_embeddings=dense_embeddings,  # (B, 256, 64, 64)
             multimask_output=False,
             hq_token_only=True,
             interm_embeddings=interm_embeddings[0],
+            out_embeddings=out_embeddings,
+            trans_token=trans_token,
         )
         # for name, param in self.mask_decoderHQ_A.named_parameters():
         #     if param.requires_grad:
