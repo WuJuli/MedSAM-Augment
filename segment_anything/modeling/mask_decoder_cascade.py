@@ -79,11 +79,8 @@ class MaskDecoderHQ(nn.Module):
             nn.GELU(),
             nn.Conv2d(transformer_dim // 4, transformer_dim // 8, 3, 1, 1))
 
-        self.embedding_output = nn.Sequential(
-            nn.Conv2d(transformer_dim // 8, transformer_dim // 4, kernel_size=3, stride=2, padding=1),
-            LayerNorm2d(transformer_dim // 4),
-            nn.GELU(),
-            nn.Conv2d(transformer_dim // 4, transformer_dim, kernel_size=3, stride=2, padding=1)
+        self.output_mlp = MLP(
+            input_dim=transformer_dim//2, hidden_dim=transformer_dim // 16, output_dim=transformer_dim, num_layers=3
         )
 
     def forward(
@@ -95,38 +92,35 @@ class MaskDecoderHQ(nn.Module):
             multimask_output: bool,
             hq_token_only: bool,
             interm_embeddings: torch.Tensor,
+            out_embeddings: torch.Tensor,
+            trans_token: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        # print("                     this is MS HQ                ")
+        # print(out_embeddings.shape, "5")
+        out_embeddings = self.output_mlp(out_embeddings.permute(0, 2, 3, 1))
+        image_embeddings = image_embeddings + out_embeddings.permute(0, 3, 1, 2)
+        # image_embeddings = image_embeddings
 
         vit_features = interm_embeddings.permute(0, 3, 1, 2)
-
-        cloned_image_embeddings = image_embeddings.clone().detach()
-        cloned_vit_features = vit_features.clone().detach()
-        hq_features = self.embedding_encoder_hf(cloned_image_embeddings) + self.compress_vit_feat_hf(
-            cloned_vit_features)
+        hq_features = self.embedding_encoder_hf(image_embeddings) + self.compress_vit_feat_hf(vit_features)
 
         batch_len = len(image_embeddings)
         image_pe = torch.repeat_interleave(image_pe, batch_len, dim=0)
         masks = []
         iou_preds = []
-        output_embeddings = []
 
         for i_batch in range(batch_len):
-            mask, iou_pred, output_embedding = self.predict_masks(
+            mask, iou_pred = self.predict_masks(
                 image_embeddings=image_embeddings[i_batch].unsqueeze(0),
                 image_pe=image_pe[i_batch].unsqueeze(0),
                 sparse_prompt_embeddings=sparse_prompt_embeddings[i_batch].unsqueeze(0),
                 dense_prompt_embeddings=dense_prompt_embeddings[i_batch].unsqueeze(0),
-                hq_features=hq_features[i_batch].unsqueeze(0)
+                hq_features=hq_features[i_batch].unsqueeze(0),
+                trans_token=trans_token,
             )
-
             masks.append(mask)
             iou_preds.append(iou_pred)
-            output_embeddings.append(output_embedding)
-
         masks = torch.cat(masks, 0)
         iou_preds = torch.cat(iou_preds, 0)
-        output_embeddings = torch.cat(output_embeddings, 0)  # torch.Size([B, 256, 64, 64])
 
         # Select the correct mask or masks for output
         if multimask_output:
@@ -149,7 +143,7 @@ class MaskDecoderHQ(nn.Module):
         else:
             masks = masks_sam + masks_hq
         # Prepare output
-        return masks, iou_preds, output_embeddings
+        return masks, iou_preds
 
     def predict_masks(
             self,
@@ -158,10 +152,12 @@ class MaskDecoderHQ(nn.Module):
             sparse_prompt_embeddings: torch.Tensor,
             dense_prompt_embeddings: torch.Tensor,
             hq_features: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+            trans_token: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Predicts masks. See 'forward' for more details."""
-        # Concatenate output tokens
-        output_tokens = torch.cat([self.iou_token.weight, self.mask_tokens.weight, self.hf_token.weight], dim=0)
+        output_tokens = torch.cat([trans_token.squeeze(0), self.hf_token.weight], dim=0)
+        # output_tokens = torch.cat([self.iou_token.weight, self.mask_tokens.weight, self.hf_token.weight], dim=0)
+
         output_tokens = output_tokens.unsqueeze(0).expand(sparse_prompt_embeddings.size(0), -1, -1)
         tokens = torch.cat((output_tokens, sparse_prompt_embeddings), dim=1)
 
@@ -178,10 +174,9 @@ class MaskDecoderHQ(nn.Module):
 
         # Upscale mask embeddings and predict masks using the mask tokens
         src = src.transpose(1, 2).view(b, c, h, w)
-
         upscaled_embedding_sam = self.output_upscaling(src)
         upscaled_embedding_hq = self.embedding_maskfeature_hf(upscaled_embedding_sam) + hq_features.repeat(b, 1, 1, 1)
-        output_embeddings = self.embedding_output(upscaled_embedding_hq)
+
         hyper_in_list: List[torch.Tensor] = []
         for i in range(self.num_mask_tokens):
             if i < self.num_mask_tokens - 1:
@@ -192,15 +187,13 @@ class MaskDecoderHQ(nn.Module):
         hyper_in = torch.stack(hyper_in_list, dim=1)
         b, c, h, w = upscaled_embedding_sam.shape
 
-        masks_sam = (hyper_in[:, :self.num_mask_tokens - 1] @ upscaled_embedding_sam.view(b, c, h * w)).view(b, -1, h,
-                                                                                                             w)
-        masks_sam_hq = (hyper_in[:, self.num_mask_tokens - 1:] @ upscaled_embedding_hq.view(b, c, h * w)).view(b, -1, h,
-                                                                                                               w)
+        masks_sam = (hyper_in[:, :self.num_mask_tokens - 1] @ upscaled_embedding_sam.view(b, c, h * w)).view(b, -1, h, w)
+        masks_sam_hq = (hyper_in[:, self.num_mask_tokens - 1:] @ upscaled_embedding_hq.view(b, c, h * w)).view(b, -1, h, w)
         masks = torch.cat([masks_sam, masks_sam_hq], dim=1)
         # Generate mask quality predictions
         iou_pred = self.iou_prediction_head(iou_token_out)
 
-        return masks, iou_pred, output_embeddings
+        return masks, iou_pred
 
 
 class MaskDecoder(nn.Module):
@@ -213,7 +206,6 @@ class MaskDecoder(nn.Module):
             activation: Type[nn.Module] = nn.GELU,
             iou_head_depth: int = 3,
             iou_head_hidden_dim: int = 256,
-            vit_dim: int = 768,
     ) -> None:
         """
         Predicts masks given an image and prompt embeddings, using a
@@ -267,7 +259,9 @@ class MaskDecoder(nn.Module):
             nn.Conv2d(transformer_dim // 8, transformer_dim // 4, kernel_size=3, stride=2, padding=1),
             LayerNorm2d(transformer_dim // 4),
             nn.GELU(),
-            nn.Conv2d(transformer_dim // 4, transformer_dim, kernel_size=3, stride=2, padding=1)
+            nn.Conv2d(transformer_dim // 4, transformer_dim//2, kernel_size=3, stride=2, padding=1),
+            LayerNorm2d(transformer_dim//2),
+            nn.GELU(),
         )
 
     def forward(
@@ -277,7 +271,7 @@ class MaskDecoder(nn.Module):
             sparse_prompt_embeddings: torch.Tensor,
             dense_prompt_embeddings: torch.Tensor,
             multimask_output: bool,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Predict masks given image and prompt embeddings.
 
@@ -294,7 +288,7 @@ class MaskDecoder(nn.Module):
           torch.Tensor: batched predictions of mask quality
         """
         # print("          this is original mask decoder                   ")
-        masks, iou_pred, out_embeddings = self.predict_masks(
+        masks, iou_pred, out_embeddings, trans_token = self.predict_masks(
             image_embeddings=image_embeddings,
             image_pe=image_pe,
             sparse_prompt_embeddings=sparse_prompt_embeddings,
@@ -310,7 +304,7 @@ class MaskDecoder(nn.Module):
         iou_pred = iou_pred[:, mask_slice]
 
         # Prepare output
-        return masks, iou_pred, out_embeddings
+        return masks, iou_pred, out_embeddings, trans_token
 
     def predict_masks(
             self,
@@ -318,7 +312,7 @@ class MaskDecoder(nn.Module):
             image_pe: torch.Tensor,
             sparse_prompt_embeddings: torch.Tensor,
             dense_prompt_embeddings: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Predicts masks. See 'forward' for more details."""
         # Concatenate output tokens
         output_tokens = torch.cat([self.iou_token.weight, self.mask_tokens.weight], dim=0)
@@ -338,13 +332,11 @@ class MaskDecoder(nn.Module):
         hs, src = self.transformer(src, pos_src, tokens)
         iou_token_out = hs[:, 0, :]
         mask_tokens_out = hs[:, 1: (1 + self.num_mask_tokens), :]
+        trans_token = torch.cat([iou_token_out.unsqueeze(0), mask_tokens_out], dim=1)
 
-        # Upscale mask embeddings and predict masks using the mask tokens
         src = src.transpose(1, 2).view(b, c, h, w)
         upscaled_embedding = self.output_upscaling(src)
-        # print(upscaled_embedding.shape, 77)
         output_embeddings = self.embedding_output(upscaled_embedding)
-        # print(output_embeddings.shape, 666)
 
         hyper_in_list: List[torch.Tensor] = []
         for i in range(self.num_mask_tokens):
@@ -356,7 +348,7 @@ class MaskDecoder(nn.Module):
         # Generate mask quality predictions
         iou_pred = self.iou_prediction_head(iou_token_out)
 
-        return masks, iou_pred, output_embeddings
+        return masks, iou_pred, output_embeddings, trans_token
 
 
 # Lightly adapted from

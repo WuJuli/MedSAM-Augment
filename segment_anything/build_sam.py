@@ -11,7 +11,6 @@ import torch
 from .modeling import (
     ImageEncoderViT,
     MaskDecoder,
-    MaskDecoderHQ,
     PromptEncoder,
     Sam,
     TwoWayTransformer,

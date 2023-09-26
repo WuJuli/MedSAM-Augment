@@ -15,6 +15,58 @@ from operator import mul
 from functools import reduce
 
 
+class MultiScaleAdapterLight(nn.Module):
+    def __init__(self, D_features, skip_connect=True):
+        super().__init__()
+        self.skip_connect = skip_connect
+        D_hidden_features = D_features // 16
+
+        self.mlp_layer0 = nn.Sequential(
+            nn.Conv2d(D_features, D_hidden_features, 1, bias=False),
+            LayerNorm2d(D_hidden_features),
+            nn.GELU(),
+            nn.Conv2d(D_hidden_features, D_features, 1, bias=False)
+        )
+        self.mlp_layer1 = nn.Sequential(
+            nn.Conv2d(D_features, D_hidden_features, 1, bias=False),
+            LayerNorm2d(D_hidden_features),
+            nn.GELU(),
+            nn.Conv2d(D_hidden_features, D_features, 1, bias=False)
+        )
+        self.mlp_layer2 = nn.Sequential(
+            nn.Conv2d(D_features, D_hidden_features, 1, bias=False),
+            LayerNorm2d(D_hidden_features),
+            nn.GELU(),
+            nn.Conv2d(D_hidden_features, D_features, 1, bias=False)
+        )
+
+        self.conv1 = nn.Conv2d(D_features, D_features, kernel_size=3, stride=2, groups=D_features, padding=1)
+        self.conv2 = nn.Conv2d(D_features, D_features, kernel_size=3, stride=4, groups=D_features, padding=1)
+        self.conv_final = nn.Conv2d(D_features, D_features, 1)
+
+    def forward(self, x):
+        _, h, w, _ = x.shape
+        target_size = (h, w)
+
+        x0 = self.mlp_layer0(x.permute(0, 3, 1, 2))
+
+        x1 = self.mlp_layer1(self.conv1(x.permute(0, 3, 1, 2)))
+        x1 = F.interpolate(x1, size=target_size, mode='bilinear', align_corners=False)
+
+        x2 = self.mlp_layer2(self.conv2(x.permute(0, 3, 1, 2)))
+        x2 = F.interpolate(x2, size=target_size, mode='bilinear', align_corners=False)
+
+        xc = self.conv_final(x0 + x1 + x2)
+        xc = xc.permute(0, 2, 3, 1)
+
+        if self.skip_connect:
+            x = x + xc
+        else:
+            x = xc
+
+        return x
+
+
 class MultiScaleAdapterV4(nn.Module):
     def __init__(self, D_features, skip_connect=True):
         super().__init__()
