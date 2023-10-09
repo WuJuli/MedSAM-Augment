@@ -12,7 +12,6 @@ from torch.nn import functional as F
 from typing import List, Tuple, Type
 
 from .common import LayerNorm2d
-from .fpn import FPN, Bottleneck
 
 
 class MaskDecoder(nn.Module):
@@ -94,13 +93,6 @@ class MaskDecoder(nn.Module):
             LayerNorm2d(transformer_dim // 4),
             nn.GELU(),
             nn.Conv2d(transformer_dim // 4, transformer_dim // 8, 3, 1, 1))
-        self.fuse_fpn = FPN(Bottleneck, [1, 1, 1, 1])
-        self.up_sampling_layers = nn.Sequential(
-            nn.ConvTranspose2d(768, 384, kernel_size=4, stride=2, padding=1),  # Upsample to [1, 384, 128, 128]
-            nn.ConvTranspose2d(384, 192, kernel_size=4, stride=2, padding=1),  # Upsample to [1, 192, 256, 256]
-            nn.ConvTranspose2d(192, 96, kernel_size=4, stride=2, padding=1),  # Upsample to [1, 96, 512, 512]
-            nn.ConvTranspose2d(96, 3, kernel_size=4, stride=2, padding=1)  # Upsample to [1, 3, 1024, 1024]
-        )
 
     def forward(
             self,
@@ -127,20 +119,9 @@ class MaskDecoder(nn.Module):
           torch.Tensor: batched predicted masks
           torch.Tensor: batched predictions of mask quality
         """
-        
-        _, h, w, _ = interm_embeddings[0].shape
-        target_size = (h, w)
-
-        vit_features1 = self.up_sampling_layers(interm_embeddings[0].permute(0, 3, 1, 2))
-        vit_features2 = self.up_sampling_layers(interm_embeddings[1].permute(0, 3, 1, 2))
-        vit_features3 = self.up_sampling_layers(interm_embeddings[2].permute(0, 3, 1, 2))
-        # print(vit_features.shape, 2)
-        vit_features1 = self.fuse_fpn(vit_features1)
-        vit_features2 = self.fuse_fpn(vit_features2)
-        vit_features3 = self.fuse_fpn(vit_features3)
-        vit_features = torch.cat([vit_features1, vit_features2, vit_features3], dim=1)
-        vit_features = F.interpolate(vit_features, size=target_size, mode='bilinear', align_corners=False)
-        # print(vit_features.shape, 4)
+        weights = [0.5, 0, 0, 0.5]
+        vit_features = [weight * emb.permute(0, 3, 1, 2) for weight, emb in zip(weights, interm_embeddings)]
+        vit_features = sum(vit_features)
 
         cloned_image_embeddings = image_embeddings.clone().detach()
         cloned_vit_features = vit_features.clone().detach()

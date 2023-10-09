@@ -11,7 +11,7 @@ setup(
     name="medsam",
     version="0.0.1",
     author="Jun Ma",
-    python_requires=">=3.9",
+    python_requires=">=3.8",
     install_requires=["monai", "matplotlib", "scikit-image", "SimpleITK>=2.2.1", "nibabel", "tqdm", "scipy"],
     packages=find_packages(exclude="notebooks"),
     extras_require={

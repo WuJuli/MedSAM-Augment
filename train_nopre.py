@@ -16,7 +16,7 @@ import torchvision.transforms.functional as F
 from typing import Any, Iterable, Tuple, List
 from tqdm import tqdm
 from sklearn.model_selection import KFold, train_test_split
-from torch.utils.tensorboard import SummaryWriter
+
 
 from segment_anything import sam_model_registry
 from segment_anything.utils.transforms import ResizeLongestSide
