@@ -13,6 +13,7 @@ from typing import Optional, Tuple, Type
 from .common import LayerNorm2d, MLPBlock, MultiScaleAdapterV4
 
 
+
 # This class and its supporting functions below lightly adapted from the ViTDet backbone available at: https://github.com/facebookresearch/detectron2/blob/main/detectron2/modeling/backbone/vit.py # noqa
 class ImageEncoderViT(nn.Module):
     def __init__(
@@ -102,6 +103,10 @@ class ImageEncoderViT(nn.Module):
             ),
             LayerNorm2d(out_chans),
         )
+        detr_encoder_layer = DeformableTransformerEncoderLayer(d_model=256, d_ffn=1024,
+                                                               dropout=0.1, activation="relu",
+                                                               n_levels=4, n_heads=8, n_points=4)
+        self.detr_encoder = DeformableTransformerEncoder(encoder_layer=detr_encoder_layer, num_layers=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # print(" in ada encoder")

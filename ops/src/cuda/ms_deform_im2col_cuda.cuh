@@ -948,7 +948,12 @@ void ms_deformable_im2col_cuda(cudaStream_t stream,
   cudaError_t err = cudaGetLastError();
   if (err != cudaSuccess)
   {
+    printf("----------------------------------")
+    printf("Number of kernels: %d\n", num_kernels);
+    printf("Number of threads: %d\n", num_threads);
+    printf("Other relevant information...\n");
     printf("error in ms_deformable_im2col_cuda: %s\n", cudaGetErrorString(err));
+
   }
 
 }

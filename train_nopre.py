@@ -17,7 +17,6 @@ from typing import Any, Iterable, Tuple, List
 from tqdm import tqdm
 from sklearn.model_selection import KFold, train_test_split
 
-
 from segment_anything import sam_model_registry
 from segment_anything.utils.transforms import ResizeLongestSide
 from torchvision.transforms.functional import resize, to_pil_image
@@ -31,7 +30,7 @@ class NpzDataset(Dataset):
                  npz_path,
                  pixel_mean: List[float] = [123.675, 116.28, 103.53],
                  pixel_std: List[float] = [58.395, 57.12, 57.375],
-                 device='cuda:0'
+                 device='cuda:1'
                  ):
         self.npz_path = npz_path
         self.npz_files = sorted(os.listdir(self.npz_path))
@@ -123,7 +122,7 @@ class TrainMedSam:
             lr: float = 1e-5,
             batch_size: int = 4,
             epochs: int = 50,
-            device: str = "cuda:0",
+            device: str = "cuda:1",
             model_type: str = "vit_b",
             checkpoint: str = "work_dir/SAM/sam_vit_b_01ec64.pth",
             save_path: str = "work_dir/no_npz",
@@ -200,13 +199,13 @@ class TrainMedSam:
                 box = sam_trans.apply_boxes(bbox, (H, W))
                 box_tensor = torch.as_tensor(box, dtype=torch.float, device=self.device)
 
-                for n, value in model.image_encoder.named_parameters():
-                    if "Adapter" not in n:
-                        value.requires_grad = False
+                # for n, value in model.image_encoder.named_parameters():
+                #     if "Adapter" not in n:
+                #         value.requires_grad = False
                 # for name, param in model.image_encoder.named_parameters():
                 #     if param.requires_grad:
                 #         print(name)
-                image_embeddings, interm_embeddings = model.image_encoder(input_image)
+
 
                 # Get predictioin mask
                 with torch.inference_mode():
@@ -214,6 +213,7 @@ class TrainMedSam:
                     # (B,256,64,64)
                     # print(len(interm_embeddings), "checkout ")
                     # print(len(deformable_embeddings), 233333333333)
+                    image_embeddings, interm_embeddings = model.image_encoder(input_image)
                     sparse_embeddings, dense_embeddings = model.prompt_encoder(
                         points=None,
                         boxes=box_tensor,
