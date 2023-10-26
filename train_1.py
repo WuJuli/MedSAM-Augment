@@ -31,7 +31,7 @@ class NpzDataset(Dataset):
                  npz_path,
                  pixel_mean: List[float] = [123.675, 116.28, 103.53],
                  pixel_std: List[float] = [58.395, 57.12, 57.375],
-                 device='cuda:1'
+                 device='cuda:0'
                  ):
         self.npz_path = npz_path
         self.npz_files = sorted(os.listdir(self.npz_path))
@@ -123,7 +123,7 @@ class TrainMedSam:
             lr: float = 1e-5,
             batch_size: int = 4,
             epochs: int = 50,
-            device: str = "cuda:1",
+            device: str = "cuda:0",
             model_type: str = "vit_b",
             checkpoint: str = "work_dir/SAM/sam_vit_b_01ec64.pth",
             save_path: str = "work_dir/no_npz",
@@ -202,7 +202,7 @@ class TrainMedSam:
                 # print("========================================see learnable parameter===========")
 
                 for n, value in model.image_encoder.named_parameters():
-                    if "Adapter" not in n:
+                    if "Adapter" and "deformable_model" not in n:
                         value.requires_grad = False
 
                 image_embeddings, interm_embeddings = model.image_encoder(input_image)
@@ -238,7 +238,8 @@ class TrainMedSam:
                 # print(mask.shape, "torch.Size([1, 1, 256, 256])")
                 # print("====================train==========================")
                 # for n, value in model.mask_decoder.named_parameters():
-                #     print(n)
+                #     if value.requires_grad:
+                #         print(n)
                 # Calculate loss
 
                 loss = seg_loss(mask_predictions, mask)

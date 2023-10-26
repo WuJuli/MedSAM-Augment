@@ -565,7 +565,7 @@ def finetune_model_predict(img_np, box_np, sam_trans, sam_model_tune, device='cu
             prompt_encoder=sam_model_tune.prompt_encoder,
             mask_decoder=sam_model_tune.mask_decoder,
         ).to(device)
-        medsam_model.load_state_dict(torch.load("work_dir/MASK_3+2/sam_model_no_pre1.pth"))
+        medsam_model.load_state_dict(torch.load("work_dir/MASK-Two/sam_model_no_pre19.pth"))
 
         medsam_model.eval()
 
@@ -581,13 +581,13 @@ def finetune_model_predict(img_np, box_np, sam_trans, sam_model_tune, device='cu
 parser = argparse.ArgumentParser(description='run inference on testing set based on MedSAM')
 parser.add_argument('-i', '--data_path', type=str, default='./data/Test-20230630T084040Z-001/Test',
                     help='path to the data folder')
-parser.add_argument('-o', '--seg_path_root', type=str, default='./data/test_result/CT-5(1)',
+parser.add_argument('-o', '--seg_path_root', type=str, default='./data/test_result/MASK-Two-20',
                     help='path to the segmentation folder')
-parser.add_argument('--seg_png_path', type=str, default='./data/test_result/sanity_test/CT-5(1)',
+parser.add_argument('--seg_png_path', type=str, default='./data/test_result/sanity_test/MASK-Two-20',
                     help='path to the segmentation folder')
 parser.add_argument('--model_type', type=str, default='vit_b', help='model type')
 parser.add_argument('--device', type=str, default='cuda:0', help='device')
-parser.add_argument('-chk', '--checkpoint', type=str, default='work_dir/MASK_3+2/sam_model_no_pre1.pth',
+parser.add_argument('-chk', '--checkpoint', type=str, default='work_dir/MASK-Two/sam_model_no_pre19.pth',
                     help='path to the trained model')
 args = parser.parse_args()
 

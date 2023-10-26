@@ -132,8 +132,8 @@ class MSDeformAttn(nn.Module):
         output = MSDeformAttnFunction.apply(
             value, input_spatial_shapes, input_level_start_index, sampling_locations, attention_weights,
             self.im2col_step)
-        print("output", output.shape)
-        print(self.d_model)
-        # output = self.output_proj(output)
+        # print("output", output.shape)
+        # print(self.d_model)
+        output = self.output_proj(output)
 
-        return 2
+        return output

@@ -514,13 +514,13 @@ parser = argparse.ArgumentParser(description='run inference on testing set based
 parser.add_argument('-i', '--data_path', type=str, default='./data/Test-20230630T084040Z-001/Test',
                     help='path to the data folder')
 # save the NSD . DSC result
-parser.add_argument('-o', '--seg_path_root', type=str, default='./data/test_result/MultiV4-5',
+parser.add_argument('-o', '--seg_path_root', type=str, default='./data/test_result/Mask-t-c-20',
                     help='path to the segmentation folder')
-parser.add_argument('--seg_png_path', type=str, default='./data/test_result/sanity_test/MultiV4-5',
+parser.add_argument('--seg_png_path', type=str, default='./data/test_result/sanity_test/Mask-t-c-20',
                     help='path to the segmentation folder')
 parser.add_argument('--model_type', type=str, default='vit_b', help='model type')
 parser.add_argument('--device', type=str, default='cuda:0', help='device')
-parser.add_argument('-chk', '--checkpoint', type=str, default='work_dir/MultiV4/sam_model_no_pre4.pth',
+parser.add_argument('-chk', '--checkpoint', type=str, default='work_dir/MASK-Two-CONTROL/sam_model_no_pre19.pth',
                     help='path to the trained model')
 args = parser.parse_args()
 
@@ -597,16 +597,16 @@ for npz_folder in npz_folders:
                 # print(img_id,"id")
                 # show ground truth and segmentation results in two subplots
                 fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-                # axes[0].imshow(ori_imgs[img_id])
+                axes[0].imshow(ori_imgs[img_id])
                 show_box(sam_bboxes[img_id], axes[0])
                 show_mask(ori_gts[img_id], axes[0])
                 axes[0].set_title('Ground Truth')
                 axes[0].axis('off')
 
-                # axes[1].imshow(ori_imgs[img_id])
+                axes[1].imshow(ori_imgs[img_id])
                 show_box(sam_bboxes[img_id], axes[1])
                 show_mask(sam_segs[img_id], axes[1])
-                axes[1].set_title('MedSAM: DSC={:.3f}'.format(sam_dice_scores[img_id]))
+                axes[1].set_title('MedSAM-Augment: DSC={:.3f}'.format(sam_dice_scores[img_id]))
                 axes[1].axis('off')
 
                 axes[2].imshow(ori_imgs[img_id])
