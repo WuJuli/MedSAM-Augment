@@ -472,7 +472,7 @@ def compute_surface_dice_at_tolerance(surface_distances, tolerance_mm):
     return surface_dice
 
 
-def finetune_model_predict(img_np, box_np, sam_trans, sam_model_tune, device='cuda:1'):
+def finetune_model_predict(img_np, box_np, sam_trans, sam_model_tune, device='cuda:0'):
     H, W = img_np.shape[:2]
     img_np = img_np.astype(np.uint8)
 
@@ -519,7 +519,7 @@ parser.add_argument('-o', '--seg_path_root', type=str, default='./data/test_resu
 parser.add_argument('--seg_png_path', type=str, default='./data/test_result/sanity_test/MscLight-5',
                     help='path to the segmentation folder')
 parser.add_argument('--model_type', type=str, default='vit_b', help='model type')
-parser.add_argument('--device', type=str, default='cuda:1', help='device')
+parser.add_argument('--device', type=str, default='cuda:0', help='device')
 parser.add_argument('-chk', '--checkpoint', type=str, default='work_dir/MscLight/sam_model_no_pre4.pth',
                     help='path to the trained model')
 args = parser.parse_args()

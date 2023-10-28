@@ -12,7 +12,6 @@ from torch.nn import functional as F
 from typing import List, Tuple, Type
 
 from .common import LayerNorm2d
-from deformable_attention import DeformableAttention
 
 
 class MaskDecoder(nn.Module):
@@ -94,16 +93,6 @@ class MaskDecoder(nn.Module):
             LayerNorm2d(transformer_dim // 4),
             nn.GELU(),
             nn.Conv2d(transformer_dim // 4, transformer_dim // 8, 3, 1, 1))
-        self.detr_attn = DeformableAttention(
-            dim=768,  # feature dimensions
-            dim_head=32,  # dimension per head
-            heads=24,  # attention heads
-            dropout=0.,  # dropout
-            downsample_factor=4,  # downsample factor (r in paper)
-            offset_scale=4,  # scale of offset, maximum offset
-            offset_groups=4,  # number of offset groups, should be multiple of heads
-            offset_kernel_size=6,  # offset kernel size
-        )
 
     def forward(
             self,
@@ -130,19 +119,15 @@ class MaskDecoder(nn.Module):
           torch.Tensor: batched predicted masks
           torch.Tensor: batched predictions of mask quality
         """
-        weights = [0.5, 0.3, 0.2, 0]
-        # print(interm_embeddings[0].shape, 7)
+        batch_len = len(image_embeddings)
 
-        vit_features = [weight * emb.permute(0, 3, 1, 2) for weight, emb in zip(weights, interm_embeddings)]
-        vit_features = sum(vit_features)
-        # print(vit_features.shape, 8)
-        vit_features = self.detr_attn(vit_features)
+        reshaped_tensors = interm_embeddings.view(4, 64, 64, 768)
+        result_tensor = reshaped_tensors.sum(dim=0).unsqueeze(0).permute(0, 3, 1, 2)
+        # print(result_tensor.shape, 7)
 
         cloned_image_embeddings = image_embeddings.clone().detach()
-        # cloned_vit_features = vit_features.clone().detach()
-        hq_features = self.embedding_encoder(cloned_image_embeddings) + self.compress_vit_feat(vit_features)
+        hq_features = self.embedding_encoder(cloned_image_embeddings) + self.compress_vit_feat(result_tensor)
 
-        batch_len = len(image_embeddings)
         image_pe = torch.repeat_interleave(image_pe, batch_len, dim=0)
         masks = []
         iou_preds = []

@@ -42,9 +42,9 @@ def dice_score(preds, targets):
 class NpzDataset(Dataset):
     def __init__(self,
                  npz_path,
+                 device,
                  pixel_mean: List[float] = [123.675, 116.28, 103.53],
                  pixel_std: List[float] = [58.395, 57.12, 57.375],
-                 device='cuda:0'
                  ):
         self.npz_path = npz_path
         self.npz_files = sorted(os.listdir(self.npz_path))
@@ -199,10 +199,10 @@ class TrainMedSam:
 
     def __init__(
             self,
+            device,
             lr: float = 1e-5,
             batch_size: int = 4,
             epochs: int = 50,
-            device: str = "cuda:0",
             model_type: str = "vit_b",
             checkpoint: str = "work_dir/SAM/sam_vit_b_01ec64.pth",
             save_path: str = "work_dir/no_npz",
@@ -325,6 +325,7 @@ if __name__ == '__main__':
     )
     parser.add_argument('--work_dir', type=str, default='./work_dir')
     parser.add_argument('--task_name', type=str, default='test')
+    parser.add_argument('--device', type=str, required=True, help="cuda number")
     parser.add_argument(
         "--num_epochs", type=int, required=False, default=50, help="number of epochs"
     )
@@ -341,11 +342,12 @@ if __name__ == '__main__':
     )
 
     args = parser.parse_args()
-    train_dataset = NpzDataset(args.npz_path)
+    train_dataset = NpzDataset(args.npz_path, args.device)
     model_save_path = join(args.work_dir, args.task_name)
     os.makedirs(model_save_path, exist_ok=True)
 
     train = TrainMedSam(
+        device=args.device,
         lr=args.lr,
         batch_size=args.batch_size,
         epochs=args.num_epochs,

@@ -29,9 +29,9 @@ from utils.dataset import MedSamDataset
 class NpzDataset(Dataset):
     def __init__(self,
                  npz_path,
+                 device,
                  pixel_mean: List[float] = [123.675, 116.28, 103.53],
                  pixel_std: List[float] = [58.395, 57.12, 57.375],
-                 device='cuda:0'
                  ):
         self.npz_path = npz_path
         self.npz_files = sorted(os.listdir(self.npz_path))
@@ -45,16 +45,11 @@ class NpzDataset(Dataset):
     def __getitem__(self, index):
         img = np.load(join(self.npz_path, self.npz_files[index]))['img']  # (256, 256, 3)
         gt = np.load(join(self.npz_path, self.npz_files[index]))['gt']  # (256, 256)
-        # print(img.shape, gt.shape)
-        # (256, 256, 3)(256, 256)
-        # print(sam_model.image_encoder.img_size, "222222") 1024
 
         resize_img = self.apply_image(img)
         resize_img_tensor = torch.as_tensor(resize_img.transpose(2, 0, 1)).to(self.device)
-        # model input: (1, 3, 1024, 1024)
-        # print(resize_img_tensor.shape, "resize ")
+
         input_image = self.preprocess(resize_img_tensor[None, :, :, :]).to(self.device)  # (1, 3, 1024, 1024)
-        # print(input_image.shape, "input")
         assert input_image.shape == (1, 3, 1024, 1024), 'input image should be resized to 1024*1024'
 
         y_indices, x_indices = np.where(gt > 0)
@@ -68,7 +63,6 @@ class NpzDataset(Dataset):
         y_max = min(H, y_max + np.random.randint(0, 20))
         bboxes = np.array([x_min, y_min, x_max, y_max])
         # convert img embedding, mask, bounding box to torch tensor
-        # print(input_image.shape, "233333")
         return input_image[0], torch.tensor(gt[None, :, :]).long(), torch.tensor(bboxes).float()
 
     def apply_image(self, image: np.ndarray) -> np.ndarray:
@@ -120,10 +114,10 @@ class TrainMedSam:
 
     def __init__(
             self,
+            device,
             lr: float = 1e-5,
             batch_size: int = 4,
             epochs: int = 50,
-            device: str = "cuda:0",
             model_type: str = "vit_b",
             checkpoint: str = "work_dir/SAM/sam_vit_b_01ec64.pth",
             save_path: str = "work_dir/no_npz",
@@ -139,9 +133,7 @@ class TrainMedSam:
     def __call__(self, train_dataset):
         """Entry method
         prepare `dataset` and `dataloader` objects
-
         """
-
         # Define dataloaders
         train_loader = DataLoader(
             dataset=train_dataset, batch_size=self.batch_size, shuffle=True
@@ -150,7 +142,6 @@ class TrainMedSam:
         # get the model
         model = self.get_model()
         model.to(self.device)
-
         # Train and evaluate model
         self.train(model, train_loader)
         # Evaluate model on test data
@@ -172,11 +163,8 @@ class TrainMedSam:
 
     def train(self, model, train_loader: Iterable, logg=True):
         """Train the model"""
-
         sam_trans = ResizeLongestSide(model.image_encoder.img_size)
-
         optimizer = optim.Adam(model.parameters(), lr=self.lr, weight_decay=0)
-
         seg_loss = monai.losses.DiceCELoss(
             sigmoid=True, squared_pred=True, reduction="mean"
         )
@@ -190,20 +178,18 @@ class TrainMedSam:
             progress_bar = tqdm(train_loader, total=len(train_loader))
             for step, (input_image, mask, bbox) in enumerate(progress_bar):
                 # process image
-                # print(input_image.shape, "batched_img")torch.Size([4, 3, 1024, 1024])
-                # print(mask.shape, "batched_mask") torch.Size([4, 1, 256, 256])
-
                 input_image = input_image.to(self.device)
                 mask = mask.to(self.device)
 
                 H, W = mask.shape[-2], mask.shape[-1]
                 box = sam_trans.apply_boxes(bbox, (H, W))
                 box_tensor = torch.as_tensor(box, dtype=torch.float, device=self.device)
-                # print("========================================see learnable parameter===========")
 
-                for n, value in model.image_encoder.named_parameters():
-                    if "Adapter" and "deformable_model" not in n:
-                        value.requires_grad = False
+                for name, param in model.image_encoder.named_parameters():
+                    if "Adapter" in name or "deformable_model" in name:
+                        param.requires_grad = True
+                    else:
+                        param.requires_grad = False
 
                 image_embeddings, interm_embeddings = model.image_encoder(input_image)
 
@@ -212,19 +198,12 @@ class TrainMedSam:
                 #         print(name)
                 # Get predictioin mask
                 with torch.inference_mode():
-                    # print(image.shape, 'img')
-                    # (B,256,64,64)
-                    # print(len(interm_embeddings), "checkout ")
-                    # print(len(deformable_embeddings), 233333333333)
-
                     sparse_embeddings, dense_embeddings = model.prompt_encoder(
                         points=None,
                         boxes=box_tensor,
                         masks=None,
                     )
-                # print(image_embeddings.shape, model.prompt_encoder.get_dense_pe().shape, sparse_embeddings.shape,
-                #       dense_embeddings.shape)
-                # ([4, 256, 64, 64])([1, 256, 64, 64])[4, 2, 256][4, 256, 64, 64]
+
                 mask_predictions, _ = model.mask_decoder(
                     image_embeddings=image_embeddings.to(self.device),  # (B, 256, 64, 64)
                     image_pe=model.prompt_encoder.get_dense_pe(),  # (1, 256, 64, 64)
@@ -234,14 +213,8 @@ class TrainMedSam:
                     hq_token_only=True,
                     interm_embeddings=interm_embeddings,
                 )
-                # print(mask_predictions.shape, "torch.Size([1, 1, 256, 256])")
-                # print(mask.shape, "torch.Size([1, 1, 256, 256])")
-                # print("====================train==========================")
-                # for n, value in model.mask_decoder.named_parameters():
-                #     if value.requires_grad:
-                #         print(n)
-                # Calculate loss
 
+                # Calculate loss
                 loss = seg_loss(mask_predictions, mask)
 
                 mask_predictions = (mask_predictions > 0.5).float()
@@ -300,6 +273,7 @@ if __name__ == '__main__':
     )
     parser.add_argument('--work_dir', type=str, default='./work_dir')
     parser.add_argument('--task_name', type=str, default='test')
+    parser.add_argument('--device', type=str, default="cuda:0", help="cuda number")
     parser.add_argument(
         "--num_epochs", type=int, required=False, default=50, help="number of epochs"
     )
@@ -316,11 +290,12 @@ if __name__ == '__main__':
     )
 
     args = parser.parse_args()
-    train_dataset = NpzDataset(args.npz_path)
+    train_dataset = NpzDataset(args.npz_path, args.device)
     model_save_path = join(args.work_dir, args.task_name)
     os.makedirs(model_save_path, exist_ok=True)
 
     train = TrainMedSam(
+        device=args.device,
         lr=args.lr,
         batch_size=args.batch_size,
         epochs=args.num_epochs,
