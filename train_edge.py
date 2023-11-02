@@ -29,9 +29,9 @@ from utils.dataset import MedSamDataset
 class NpzDataset(Dataset):
     def __init__(self,
                  npz_path,
+                 device,
                  pixel_mean: List[float] = [123.675, 116.28, 103.53],
                  pixel_std: List[float] = [58.395, 57.12, 57.375],
-                 device='cuda:0'
                  ):
         self.npz_path = npz_path
         self.npz_files = sorted(os.listdir(self.npz_path))
@@ -45,8 +45,10 @@ class NpzDataset(Dataset):
     def __getitem__(self, index):
         img = np.load(join(self.npz_path, self.npz_files[index]))['img']  # (256, 256, 3)
         gt = np.load(join(self.npz_path, self.npz_files[index]))['gt']  # (256, 256)
-        # print(img.shape, gt.shape)
-        # (256, 256, 3)(256, 256)
+        edge = np.load(join(self.npz_path, self.npz_files[index]))['edge']  # (256, 256)
+        # print("check the img, gt, edge")
+        # print(img.shape, gt.shape, edge.shape)
+        # (256, 256, 3)(256, 256)(256, 256)
         # print(sam_model.image_encoder.img_size, "222222") 1024
 
         resize_img = self.apply_image(img)
@@ -72,7 +74,7 @@ class NpzDataset(Dataset):
         return input_image[0], torch.tensor(gt[None, :, :]).long(), torch.tensor(bboxes).float()
 
     def apply_image(self, image: np.ndarray) -> np.ndarray:
-        """
+        """BasicConv2d
         Expects a numpy array with shape HxWxC in uint8 format.
         """
         # set target_length 1024
@@ -120,10 +122,10 @@ class TrainMedSam:
 
     def __init__(
             self,
+            device,
             lr: float = 1e-5,
             batch_size: int = 4,
             epochs: int = 50,
-            device: str = "cuda:0",
             model_type: str = "vit_b",
             checkpoint: str = "work_dir/SAM/sam_vit_b_01ec64.pth",
             save_path: str = "work_dir/no_npz",
@@ -139,9 +141,7 @@ class TrainMedSam:
     def __call__(self, train_dataset):
         """Entry method
         prepare `dataset` and `dataloader` objects
-
         """
-
         # Define dataloaders
         train_loader = DataLoader(
             dataset=train_dataset, batch_size=self.batch_size, shuffle=True
@@ -297,6 +297,7 @@ if __name__ == '__main__':
         default="data/testTrain",
         help="the path to original .npz files"
     )
+    parser.add_argument('--device', type=str, required=False, default="cuda:0", help="cuda number")
     parser.add_argument('--work_dir', type=str, default='./work_dir')
     parser.add_argument('--task_name', type=str, default='test')
     parser.add_argument(
@@ -315,11 +316,12 @@ if __name__ == '__main__':
     )
 
     args = parser.parse_args()
-    train_dataset = NpzDataset(args.npz_path)
+    train_dataset = NpzDataset(args.npz_path, device=args.device)
     model_save_path = join(args.work_dir, args.task_name)
     os.makedirs(model_save_path, exist_ok=True)
 
     train = TrainMedSam(
+        device=args.device,
         lr=args.lr,
         batch_size=args.batch_size,
         epochs=args.num_epochs,

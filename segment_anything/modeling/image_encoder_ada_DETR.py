@@ -13,6 +13,7 @@ from typing import Optional, Tuple, Type
 from .common import LayerNorm2d, MLPBlock, MultiScaleAdapterV4
 from .detr import DeformableTransformer
 
+
 # This class and its supporting functions below lightly adapted from the ViTDet backbone available at: https://github.com/facebookresearch/detectron2/blob/main/detectron2/modeling/backbone/vit.py # noqa
 class ImageEncoderViT(nn.Module):
     def __init__(
@@ -102,6 +103,12 @@ class ImageEncoderViT(nn.Module):
             ),
             LayerNorm2d(out_chans),
         )
+
+        self.deformable_convs = nn.ModuleList([
+            nn.Conv2d(embed_dim, embed_dim, kernel_size=1, stride=1)
+            for _ in range(4)
+        ])
+
         self.deformable_model = DeformableTransformer(d_model=768, nhead=12,
                                                       num_encoder_layers=1, num_decoder_layers=6, dim_feedforward=1024,
                                                       dropout=0.1,
@@ -123,6 +130,9 @@ class ImageEncoderViT(nn.Module):
                 interm_embeddings.append(x)
 
         x = self.neck(x.permute(0, 3, 1, 2))
+
+        for i, conv in enumerate(self.deformable_convs):
+            interm_embeddings[i] = conv(interm_embeddings[i].permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
 
         interm_src = interm_embeddings
         interm_mask = [torch.zeros(b, h, w, dtype=torch.bool, device=interm_embeddings[0].device) for _ in range(4)]

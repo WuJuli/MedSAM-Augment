@@ -121,7 +121,7 @@ class MaskDecoder(nn.Module):
         """
         batch_len = len(image_embeddings)
 
-        reshaped_tensors = interm_embeddings.view(4, 64, 64, 768)
+        reshaped_tensors = interm_embeddings.reshape(4, 64, 64, 768)
         result_tensor = reshaped_tensors.sum(dim=0).unsqueeze(0).permute(0, 3, 1, 2)
         # print(result_tensor.shape, 7)
 

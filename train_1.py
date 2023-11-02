@@ -186,14 +186,14 @@ class TrainMedSam:
                 box_tensor = torch.as_tensor(box, dtype=torch.float, device=self.device)
 
                 for name, param in model.image_encoder.named_parameters():
-                    if "Adapter" in name or "deformable_model" in name:
+                    if "Adapter" in name or "deformable" in name:
                         param.requires_grad = True
                     else:
                         param.requires_grad = False
 
                 image_embeddings, interm_embeddings = model.image_encoder(input_image)
-
-                # for name, param in model.image_encoder.named_parameters():
+                
+                # for name, param in model.mask_decoder.named_parameters():
                 #     if param.requires_grad:
                 #         print(name)
                 # Get predictioin mask

@@ -514,13 +514,13 @@ parser = argparse.ArgumentParser(description='run inference on testing set based
 parser.add_argument('-i', '--data_path', type=str, default='./data/Test-20230630T084040Z-001/Test',
                     help='path to the data folder')
 # save the NSD . DSC result
-parser.add_argument('-o', '--seg_path_root', type=str, default='./data/test_result/detr-Msc4-2',
+parser.add_argument('-o', '--seg_path_root', type=str, default='./data/test_result/DETR-MSC4-5',
                     help='path to the segmentation folder')
-parser.add_argument('--seg_png_path', type=str, default='./data/test_result/sanity_test/detr-Msc4-2',
+parser.add_argument('--seg_png_path', type=str, default='./data/test_result/sanity_test/DETR-MSC4-5',
                     help='path to the segmentation folder')
 parser.add_argument('--model_type', type=str, default='vit_b', help='model type')
-parser.add_argument('--device', type=str, default='cuda:1', help='device')
-parser.add_argument('-chk', '--checkpoint', type=str, default='work_dir/detr-Msc4/sam_model_no_pre1.pth',
+parser.add_argument('--device', type=str, default='cuda:0', help='device')
+parser.add_argument('-chk', '--checkpoint', type=str, default='work_dir/DETR_MSC4/sam_model_no_pre4.pth',
                     help='path to the trained model')
 args = parser.parse_args()
 
@@ -630,3 +630,6 @@ for npz_folder in npz_folders:
         file.write("These are the results of the analysis:\n")
         file.write("DSC: " + str(sum(avg_DSC) / len(avg_DSC)) + "\n")
         file.write("NSD: " + str(sum(avg_NSD) / len(avg_NSD)) + "\n")
+
+    print("DSC: ", sum(avg_DSC) / len(avg_DSC))
+    print("NSD: ", sum(avg_DSC) / len(avg_NSD))
