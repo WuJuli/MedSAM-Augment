@@ -130,7 +130,7 @@ class MaskDecoder(nn.Module):
           torch.Tensor: batched predicted masks
           torch.Tensor: batched predictions of mask quality
         """
-        weights = [0.5, 0.3, 0.2, 0]
+        weights = [1, 1, 1, 1]
         # print(interm_embeddings[0].shape, 7)
 
         vit_features = [weight * emb.permute(0, 3, 1, 2) for weight, emb in zip(weights, interm_embeddings)]
