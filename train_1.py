@@ -16,10 +16,10 @@ import torchvision.transforms.functional as F
 from typing import Any, Iterable, Tuple, List
 from tqdm import tqdm
 
-
 from segment_anything import sam_model_registry
 from segment_anything.utils.transforms import ResizeLongestSide
 from torchvision.transforms.functional import resize, to_pil_image
+
 
 class NpzDataset(Dataset):
     def __init__(self,
@@ -188,7 +188,7 @@ class TrainMedSam:
 
                 image_embeddings, interm_embeddings = model.image_encoder(input_image)
 
-                # for name, param in model.mask_decoder.named_parameters():
+                # for name, param in model.image_encoder.named_parameters():
                 #     if param.requires_grad:
                 #         print(name)
                 # Get predictioin mask
@@ -268,7 +268,7 @@ if __name__ == '__main__':
     )
     parser.add_argument('--work_dir', type=str, default='./work_dir')
     parser.add_argument('--task_name', type=str, default='test')
-    parser.add_argument('--device', type=str, default="cuda:0", help="cuda number")
+    parser.add_argument('--device', type=str, default="cuda:1", help="cuda number")
     parser.add_argument(
         "--num_epochs", type=int, required=False, default=50, help="number of epochs"
     )

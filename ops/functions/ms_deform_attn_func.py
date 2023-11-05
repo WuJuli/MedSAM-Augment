@@ -21,6 +21,13 @@ import MultiScaleDeformableAttention as MSDA
 class MSDeformAttnFunction(Function):
     @staticmethod
     def forward(ctx, value, value_spatial_shapes, value_level_start_index, sampling_locations, attention_weights, im2col_step):
+        # print("----------------------in de at func ME----------------------------")
+        # print(value.shape, value.max(), value.min())
+        # print(value_spatial_shapes.shape, value_spatial_shapes.max(), value_spatial_shapes.min())
+        # print(value_level_start_index.shape, value_level_start_index.max(), value_level_start_index.min())
+        # print(sampling_locations.shape, sampling_locations.max(), sampling_locations.min())
+        # print(attention_weights.shape, attention_weights.max(), attention_weights.min())
+        # print(im2col_step)
         ctx.im2col_step = im2col_step
         output = MSDA.ms_deform_attn_forward(
             value, value_spatial_shapes, value_level_start_index, sampling_locations, attention_weights, ctx.im2col_step)
