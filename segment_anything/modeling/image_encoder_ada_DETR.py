@@ -117,9 +117,9 @@ class ImageEncoderViT(nn.Module):
                                                       two_stage=False, two_stage_num_proposals=300)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+
         x = self.patch_embed(x)
         b, h, w, c = x.shape
-
         if self.pos_embed is not None:
             x = x + self.pos_embed
 
