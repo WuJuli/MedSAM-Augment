@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 join = os.path.join
 import json
 from datetime import datetime
-
+import pandas as pd
 import numpy as np
 import monai
 import torch
@@ -15,6 +15,7 @@ from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms.functional as F
 from typing import Any, Iterable, Tuple, List
 from tqdm import tqdm
+from sklearn.model_selection import KFold, train_test_split
 
 from segment_anything import sam_model_registry
 from segment_anything.utils.transforms import ResizeLongestSide
@@ -185,10 +186,15 @@ class TrainMedSam:
                         param.requires_grad = True
                     else:
                         param.requires_grad = False
+                for name, param in model.mask_decoder.named_parameters():
+                    if "hf" in name:
+                        param.requires_grad = True
+                    else:
+                        param.requires_grad = False
 
                 image_embeddings, interm_embeddings = model.image_encoder(input_image)
-
-                # for name, param in model.image_encoder.named_parameters():
+                #
+                # for name, param in model.mask_decoder.named_parameters():
                 #     if param.requires_grad:
                 #         print(name)
                 # Get predictioin mask

@@ -93,7 +93,6 @@ class MaskDecoder(nn.Module):
             LayerNorm2d(transformer_dim // 4),
             nn.GELU(),
             nn.Conv2d(transformer_dim // 4, transformer_dim // 8, 3, 1, 1))
-        self.detr_fuse = nn.Conv2d(in_channels=vit_dim, out_channels=vit_dim, kernel_size=2, stride=2)
 
     def forward(
             self,
@@ -122,14 +121,12 @@ class MaskDecoder(nn.Module):
         """
         batch_len = len(image_embeddings)
 
-        reshaped_tensors = interm_embeddings.reshape(4, 64, 64, 768)
-        reshaped_tensors = reshaped_tensors[0].unsqueeze(0)
-        # print(reshaped_tensors.shape, 9)
-        # reshaped_tensors = self.detr_fuse(reshaped_tensors.permute(0, 3, 1, 2))
-        # reshaped_tensors = reshaped_tensors.reshape(1, 768, 64, 64)
+        reshaped_tensors = interm_embeddings.view(4, 64, 64, 768)
+        result_tensor = reshaped_tensors.sum(dim=0).unsqueeze(0).permute(0, 3, 1, 2)
+        # print(result_tensor.shape, 7)
 
         cloned_image_embeddings = image_embeddings.clone().detach()
-        hq_features = self.embedding_encoder(cloned_image_embeddings) + self.compress_vit_feat(reshaped_tensors.permute(0, 3, 1, 2))
+        hq_features = self.embedding_encoder(cloned_image_embeddings) + self.compress_vit_feat(result_tensor)
 
         image_pe = torch.repeat_interleave(image_pe, batch_len, dim=0)
         masks = []
