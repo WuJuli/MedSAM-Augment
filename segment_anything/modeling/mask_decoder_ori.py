@@ -24,7 +24,6 @@ class MaskDecoder(nn.Module):
         activation: Type[nn.Module] = nn.GELU,
         iou_head_depth: int = 3,
         iou_head_hidden_dim: int = 256,
-        vit_dim: int = 768,
     ) -> None:
         """
         Predicts masks given an image and prompt embeddings, using a
@@ -81,8 +80,6 @@ class MaskDecoder(nn.Module):
         sparse_prompt_embeddings: torch.Tensor,
         dense_prompt_embeddings: torch.Tensor,
         multimask_output: bool,
-        hq_token_only: bool,
-        interm_embeddings: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Predict masks given image and prompt embeddings.
@@ -99,15 +96,6 @@ class MaskDecoder(nn.Module):
           torch.Tensor: batched predicted masks
           torch.Tensor: batched predictions of mask quality
         """
-        print("this is original mask decoder===================")
-
-        # print(vit_features.shape, "8888")
-        print(image_embeddings.shape, "torch.Size([1, 256, 64, 64]) ")
-        # print(image_pe.shape)
-        # print(sparse_prompt_embeddings.shape)
-        # print(dense_prompt_embeddings.shape)
-        print(len(interm_embeddings))
-        print(interm_embeddings[0].shape, "torch.Size([1, 64, 64, 768])")
         masks, iou_pred = self.predict_masks(
             image_embeddings=image_embeddings,
             image_pe=image_pe,
@@ -160,7 +148,6 @@ class MaskDecoder(nn.Module):
         # Upscale mask embeddings and predict masks using the mask tokens
         src = src.transpose(1, 2).view(b, c, h, w)
         upscaled_embedding = self.output_upscaling(src)
-        print(upscaled_embedding.shape, "torch.Size([1, 32, 256, 256])")
         hyper_in_list: List[torch.Tensor] = []
         for i in range(self.num_mask_tokens):
             hyper_in_list.append(

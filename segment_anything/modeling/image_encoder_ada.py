@@ -54,7 +54,7 @@ class ImageEncoderViT(nn.Module):
         """
         super().__init__()
         self.img_size = img_size
-
+        self.global_attn_indexes = global_attn_indexes
         self.patch_embed = PatchEmbed(
             kernel_size=(patch_size, patch_size),
             stride=(patch_size, patch_size),
@@ -104,21 +104,24 @@ class ImageEncoderViT(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # print(" in ada encoder")
+        # print(self.global_attn_indexes, 6)
         x = self.patch_embed(x)
         if self.pos_embed is not None:
             x = x + self.pos_embed
-        interm_embeddings = []
-        for i, blk in enumerate(self.blocks):
 
+        for i, blk in enumerate(self.blocks):
             x = blk(x)
-            if blk.window_size == 0:
-                interm_embeddings.append(x)
+            if i in [0, 1, 2, 3]:
+                blk.use_adapter = True
+
+        # for i, blk in enumerate(self.blocks):
+        #     if blk.use_adapter:
+        #         print(i, 7)
             # print(blk.window_size, blk.use_adapter)
 
         x = self.neck(x.permute(0, 3, 1, 2))
 
-        return x, interm_embeddings
+        return x
 
 
 class Block(nn.Module):
@@ -184,10 +187,10 @@ class Block(nn.Module):
 
         x = self.norm1(x)
         x = self.attn(x)
-        x = self.msc_Adapter(x)
+        # x = self.msc_Adapter(x)
 
-        # if self.use_adapter:
-        #     x = self.msc_Adapter(x)
+        if self.use_adapter:
+            x = self.msc_Adapter(x)
 
         # Reverse window partition
         if self.window_size > 0:

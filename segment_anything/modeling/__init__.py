@@ -16,10 +16,10 @@ from .image_encoder_ada import ImageEncoderViT  # add MultiScaleAdapter
 # from .image_encoder_detr import ImageEncoderViT  # the ori hq image encoder   DETR
 # from .image_encoder_ada_DETR import ImageEncoderViT  # the ori hq image encoder   DETR
 
-from .mask_decoder import MaskDecoder      # my version hq mask decoder
+# from .mask_decoder import MaskDecoder      # my version hq mask decoder
 # from .mask_decoder_cascade import MaskDecoder  # not with hq, with cascade mask decoder
 # from .mask_decoder_cascade import MaskDecoderHQ  # cascade mask decoder HQ
-# from .mask_decoder_ori import MaskDecoder  # the original decoder
+from .mask_decoder_ori import MaskDecoder  # the original decoder
 # from .mask_decoder_detr import MaskDecoder  # using the deformable attention
 # from .mask_decoder_DETR import MaskDecoder  # using the deformable attention
 
