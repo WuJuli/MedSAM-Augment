@@ -13,8 +13,7 @@ from .modeling import (
     MaskDecoder,
     PromptEncoder,
     Sam,
-    TwoWayTransformer,
-    TinyViT
+    TwoWayTransformer
 )
 
 

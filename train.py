@@ -265,7 +265,7 @@ if __name__ == '__main__':
     )
     parser.add_argument('--work_dir', type=str, default='./work_dir')
     parser.add_argument('--task_name', type=str, default='test')
-    parser.add_argument('--device', type=str, default="cuda:0", help="cuda number")
+    parser.add_argument('--device', type=str, default="cuda:1", help="cuda number")
     parser.add_argument(
         "--num_epochs", type=int, required=False, default=50, help="number of epochs"
     )
