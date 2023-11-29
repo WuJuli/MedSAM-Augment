@@ -1,4 +1,3 @@
-
 import numpy as np
 import matplotlib.pyplot as plt
 import os
@@ -311,38 +310,38 @@ spacing_mm = [1.0, 1.0, 1.0]
 # Compute the neighbour code for 2D images
 def compute_surface_distances(mask_gt, mask_pred, spacing_mm):
     """Compute closest distances from all surface points to the other surface.
-  
+
     Finds all surface elements "surfels" in the ground truth mask `mask_gt` and
     the predicted mask `mask_pred`, computes their area in mm^2 and the distance
     to the closest point on the other surface. It returns two sorted lists of
     distances together with the corresponding surfel areas. If one of the masks
     is empty, the corresponding lists are empty and all distances in the other
-    list are `inf` 
-  
+    list are `inf`
+
     Args:
       mask_gt: 3-dim Numpy array of type bool. The ground truth mask.
       mask_pred: 3-dim Numpy array of type bool. The predicted mask.
       spacing_mm: 3-element list-like structure. Voxel spacing in x0, x1 and x2
-          direction 
-  
+          direction
+
     Returns:
-      A dict with 
+      A dict with
       "distances_gt_to_pred": 1-dim numpy array of type float. The distances in mm
-          from all ground truth surface elements to the predicted surface, 
+          from all ground truth surface elements to the predicted surface,
           sorted from smallest to largest
       "distances_pred_to_gt": 1-dim numpy array of type float. The distances in mm
-          from all predicted surface elements to the ground truth surface, 
-          sorted from smallest to largest 
-      "surfel_areas_gt": 1-dim numpy array of type float. The area in mm^2 of 
-          the ground truth surface elements in the same order as 
+          from all predicted surface elements to the ground truth surface,
+          sorted from smallest to largest
+      "surfel_areas_gt": 1-dim numpy array of type float. The area in mm^2 of
+          the ground truth surface elements in the same order as
           distances_gt_to_pred
-      "surfel_areas_pred": 1-dim numpy array of type float. The area in mm^2 of 
-          the predicted surface elements in the same order as 
+      "surfel_areas_pred": 1-dim numpy array of type float. The area in mm^2 of
+          the predicted surface elements in the same order as
           distances_pred_to_gt
-  
+
     """
 
-    # compute the area for all 256 possible surface elements 
+    # compute the area for all 256 possible surface elements
     # (given a 2x2x2 neighbourhood) according to the spacing_mm
     neighbour_code_to_surface_area = np.zeros([256])
     for code in range(256):
@@ -392,8 +391,8 @@ def compute_surface_distances(mask_gt, mask_pred, spacing_mm):
     # print("bounding box max = {}".format(bbox_max))
 
     # crop the processing subvolume.
-    # we need to zeropad the cropped region with 1 voxel at the lower, 
-    # the right and the back side. This is required to obtain the "full" 
+    # we need to zeropad the cropped region with 1 voxel at the lower,
+    # the right and the back side. This is required to obtain the "full"
     # convolution result with the 2x2x2 kernel
     cropmask_gt = np.zeros((bbox_max - bbox_min) + 2, np.uint8)
     cropmask_pred = np.zeros((bbox_max - bbox_min) + 2, np.uint8)
@@ -473,7 +472,7 @@ def compute_surface_dice_at_tolerance(surface_distances, tolerance_mm):
     return surface_dice
 
 
-def finetune_model_predict(img_np, box_np, sam_trans, sam_model_tune, device='cuda:0'):
+def finetune_model_predict(img_np, box_np, sam_trans, sam_model_tune, device):
     H, W = img_np.shape[:2]
     img_np = img_np.astype(np.uint8)
 
@@ -513,13 +512,13 @@ parser = argparse.ArgumentParser(description='run inference on testing set based
 parser.add_argument('-i', '--data_path', type=str, default='./data/Test-20230630T084040Z-001/Test',
                     help='path to the data folder')
 # save the NSD . DSC result
-parser.add_argument('-o', '--seg_path_root', type=str, default='./data/test_result/newnewcode',
+parser.add_argument('-o', '--seg_path_root', type=str, default='./data/test_result/SAM-5',
                     help='path to the segmentation folder')
-parser.add_argument('--seg_png_path', type=str, default='./data/test_result/sanity_test/newnewcode',
+parser.add_argument('--seg_png_path', type=str, default='./data/test_result/sanity_test/SAM-5',
                     help='path to the segmentation folder')
 parser.add_argument('--model_type', type=str, default='vit_b', help='model type')
-parser.add_argument('--device', type=str, default='cuda:0', help='device')
-parser.add_argument('-chk', '--checkpoint', type=str, default='work_dir/vit_B/sam_model_no_pre4.pth',
+parser.add_argument('--device', type=str, default='cuda:1', help='device')
+parser.add_argument('-chk', '--checkpoint', type=str, default='work_dir/SAM/sam_vit_b_01ec64.pth',
                     help='path to the trained model')
 args = parser.parse_args()
 
@@ -596,16 +595,16 @@ for npz_folder in npz_folders:
                 # print(img_id,"id")
                 # show ground truth and segmentation results in two subplots
                 fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-                # axes[0].imshow(ori_imgs[img_id])
+                axes[0].imshow(ori_imgs[img_id])
                 show_box(sam_bboxes[img_id], axes[0])
                 show_mask(ori_gts[img_id], axes[0])
                 axes[0].set_title('Ground Truth')
                 axes[0].axis('off')
 
-                # axes[1].imshow(ori_imgs[img_id])
+                axes[1].imshow(ori_imgs[img_id])
                 show_box(sam_bboxes[img_id], axes[1])
                 show_mask(sam_segs[img_id], axes[1])
-                axes[1].set_title('MedSAM: DSC={:.3f}'.format(sam_dice_scores[img_id]))
+                axes[1].set_title('MedSAM-Augment: DSC={:.3f}'.format(sam_dice_scores[img_id]))
                 axes[1].axis('off')
 
                 axes[2].imshow(ori_imgs[img_id])
@@ -629,3 +628,6 @@ for npz_folder in npz_folders:
         file.write("These are the results of the analysis:\n")
         file.write("DSC: " + str(sum(avg_DSC) / len(avg_DSC)) + "\n")
         file.write("NSD: " + str(sum(avg_NSD) / len(avg_NSD)) + "\n")
+
+    print("DSC: ", sum(avg_DSC) / len(avg_DSC))
+    print("NSD: ", sum(avg_NSD) / len(avg_NSD))
