@@ -82,6 +82,12 @@ class MaskDecoder(nn.Module):
             nn.GELU(),
             nn.ConvTranspose2d(transformer_dim, transformer_dim // 8, kernel_size=2, stride=2))
 
+        self.embedding_encoder = nn.Sequential(
+            nn.ConvTranspose2d(transformer_dim, transformer_dim // 4, kernel_size=2, stride=2),
+            LayerNorm2d(transformer_dim // 4),
+            nn.GELU(),
+            nn.ConvTranspose2d(transformer_dim // 4, transformer_dim // 8, kernel_size=2, stride=2),
+        )
         self.embedding_maskfeature = nn.Sequential(
             nn.Conv2d(transformer_dim // 8, transformer_dim // 4, 3, 1, 1),
             LayerNorm2d(transformer_dim // 4),
@@ -115,10 +121,12 @@ class MaskDecoder(nn.Module):
         """
         batch_len = len(image_embeddings)
 
-        reshaped_tensors = interm_embeddings.reshape(4, 64, 64, 768)
+        reshaped_tensors = interm_embeddings.view(4, 64, 64, 768)
         result_tensor = reshaped_tensors.sum(dim=0).unsqueeze(0).permute(0, 3, 1, 2)
+        # print(result_tensor.shape, 7)
 
-        hq_features = self.compress_vit_feat(result_tensor)
+        cloned_image_embeddings = image_embeddings.clone().detach()
+        hq_features = self.embedding_encoder(cloned_image_embeddings) + self.compress_vit_feat(result_tensor)
 
         image_pe = torch.repeat_interleave(image_pe, batch_len, dim=0)
         masks = []

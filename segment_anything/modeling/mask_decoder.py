@@ -119,9 +119,10 @@ class MaskDecoder(nn.Module):
           torch.Tensor: batched predicted masks
           torch.Tensor: batched predictions of mask quality
         """
+        weights = [0.5, 0, 0, 0.5]
+        vit_features = [weight * emb.permute(0, 3, 1, 2) for weight, emb in zip(weights, interm_embeddings)]
+        vit_features = sum(vit_features)
 
-        vit_features = interm_embeddings[0].permute(0, 3, 1, 2)
-       
         cloned_image_embeddings = image_embeddings.clone().detach()
         cloned_vit_features = vit_features.clone().detach()
         hq_features = self.embedding_encoder(cloned_image_embeddings) + self.compress_vit_feat(cloned_vit_features)

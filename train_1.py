@@ -198,7 +198,7 @@ class TrainMedSam:
                         
                 image_embeddings, interm_embeddings = model.image_encoder(input_image)
 
-                # for name, param in model.image_encoder.named_parameters():
+                # for name, param in model.mask_decoder.named_parameters():
                 #     if param.requires_grad:
                 #         print(name)
                 # Get predictioin mask

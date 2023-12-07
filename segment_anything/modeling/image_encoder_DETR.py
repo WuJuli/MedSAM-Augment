@@ -10,7 +10,8 @@ import torch.nn.functional as F
 
 from typing import Optional, Tuple, Type
 
-from .common import LayerNorm2d, MLPBlock, MultiScaleAdapterV4
+from .common import LayerNorm2d, MLPBlock
+from .detr import DeformableTransformer
 
 
 # This class and its supporting functions below lightly adapted from the ViTDet backbone available at: https://github.com/facebookresearch/detectron2/blob/main/detectron2/modeling/backbone/vit.py # noqa
@@ -102,23 +103,41 @@ class ImageEncoderViT(nn.Module):
             ),
             LayerNorm2d(out_chans),
         )
+        self.deformable_model = DeformableTransformer(d_model=768, nhead=12,
+                                                      num_encoder_layers=1, num_decoder_layers=6, dim_feedforward=1024,
+                                                      dropout=0.1,
+                                                      activation="relu", return_intermediate_dec=False,
+                                                      num_feature_levels=4, dec_n_points=4, enc_n_points=4,
+                                                      two_stage=False, two_stage_num_proposals=300)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # print(" in ada encoder")
         x = self.patch_embed(x)
+        b, h, w, c = x.shape
+
         if self.pos_embed is not None:
             x = x + self.pos_embed
-        interm_embeddings = []
-        for i, blk in enumerate(self.blocks):
 
+        interm_embeddings = []
+        for blk in self.blocks:
             x = blk(x)
             if blk.window_size == 0:
                 interm_embeddings.append(x)
-            # print(blk.window_size, blk.use_adapter)
 
         x = self.neck(x.permute(0, 3, 1, 2))
 
-        return x, interm_embeddings
+        interm_src = interm_embeddings
+        interm_mask = [torch.zeros(b, h, w, dtype=torch.bool, device=interm_embeddings[0].device) for _ in range(4)]
+
+        interm_pos_embed = torch.repeat_interleave(self.pos_embed, b, dim=0)
+        pos_embed_list = [interm_pos_embed.clone() for _ in range(4)]
+        # print(interm_src[0].device, interm_mask[0].device, pos_embed_list[0].device)
+
+        output = self.deformable_model(interm_src, interm_mask, pos_embed_list)
+
+        # print("yeah!", output.shape, torch.Size([1, 16384, 768]))
+        # print(interm_embeddings[0].shape, torch.Size([1, 64, 64, 768]))
+
+        return x, output
 
 
 class Block(nn.Module):
@@ -170,10 +189,6 @@ class Block(nn.Module):
 
         self.window_size = window_size
 
-        # multiscale adapter
-        self.use_adapter = False
-        self.msc_Adapter = MultiScaleAdapterV4(dim)
-
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         shortcut = x
 
@@ -184,10 +199,6 @@ class Block(nn.Module):
 
         x = self.norm1(x)
         x = self.attn(x)
-        x = self.msc_Adapter(x)
-
-        # if self.use_adapter:
-        #     x = self.msc_Adapter(x)
 
         # Reverse window partition
         if self.window_size > 0:
