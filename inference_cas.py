@@ -7,7 +7,6 @@ import torch
 import torch.nn as nn
 from segment_anything import sam_model_registry
 from segment_anything.utils.transforms import ResizeLongestSide
-
 from segment_anything.modeling import MaskDecoderHQ, TwoWayTransformer
 from scipy.spatial.distance import directed_hausdorff
 from tqdm import tqdm
@@ -56,6 +55,8 @@ class MedSAM(nn.Module):
             return mask_decoder_HQ
 
         self.mask_decoderHQ_A = create_mask_decoder_HQ()
+        self.mask_decoderHQ_B = create_mask_decoder_HQ()
+        self.mask_decoderHQ_C = create_mask_decoder_HQ()
         self.prompt_encoder = prompt_encoder
 
     def forward(self, image, box_tensor):
@@ -73,9 +74,26 @@ class MedSAM(nn.Module):
                 dense_prompt_embeddings=dense_embeddings,  # (B, 256, 64, 64)
                 multimask_output=False,
             )
-
-            maskA, _, _ = self.mask_decoderHQ_A(
+            maskC, _, out_embeddingsC = self.mask_decoderHQ_C(
                 image_embeddings=out_embeddings,  # (B, 256, 64, 64)
+                image_pe=self.prompt_encoder.get_dense_pe(),  # (1, 256, 64, 64)
+                sparse_prompt_embeddings=sparse_embeddings,  # (B, 2, 256)
+                dense_prompt_embeddings=dense_embeddings,  # (B, 256, 64, 64)
+                multimask_output=False,
+                hq_token_only=True,
+                interm_embeddings=interm_embeddings[2],
+            )
+            maskB, _, out_embeddingsB = self.mask_decoderHQ_B(
+                image_embeddings=out_embeddingsC,  # (B, 256, 64, 64)
+                image_pe=self.prompt_encoder.get_dense_pe(),  # (1, 256, 64, 64)
+                sparse_prompt_embeddings=sparse_embeddings,  # (B, 2, 256)
+                dense_prompt_embeddings=dense_embeddings,  # (B, 256, 64, 64)
+                multimask_output=False,
+                hq_token_only=True,
+                interm_embeddings=interm_embeddings[1],
+            )
+            maskA, _, _ = self.mask_decoderHQ_A(
+                image_embeddings=out_embeddingsB,  # (B, 256, 64, 64)
                 image_pe=self.prompt_encoder.get_dense_pe(),  # (1, 256, 64, 64)
                 sparse_prompt_embeddings=sparse_embeddings,  # (B, 2, 256)
                 dense_prompt_embeddings=dense_embeddings,  # (B, 256, 64, 64)
@@ -545,32 +563,20 @@ def compute_surface_dice_at_tolerance(surface_distances, tolerance_mm):
     return surface_dice
 
 
-def finetune_model_predict(img_np, box_np, sam_trans, sam_model_tune, device='cuda:1'):
-    H, W = img_np.shape[:2]
-    img_np = img_np.astype(np.uint8)
+def finetune_model_predict(input_image, box_tensor, sam_model_tune, device='cuda:0'):
+    medsam_model = MedSAM(
+        image_encoder=sam_model_tune.image_encoder,
+        prompt_encoder=sam_model_tune.prompt_encoder,
+        mask_decoder=sam_model_tune.mask_decoder,
+    ).to(device)
+    medsam_model.load_state_dict(torch.load("work_dir/Cascade-mask4/sam_model_no_pre1.pth"))
 
-    resize_img = sam_trans.apply_image(img_np)
-    resize_img_tensor = torch.as_tensor(resize_img.transpose(2, 0, 1)).to(device)
-    input_image = sam_model_tune.preprocess(resize_img_tensor[None, :, :, :])  # (1, 3, 1024, 1024)
-    with torch.no_grad():
-        box = sam_trans.apply_boxes(box_np, (H, W))
-        box_torch = torch.as_tensor(box, dtype=torch.float, device=device)
-        if len(box_torch.shape) == 2:
-            box_torch = box_torch[:, None, :]  # (B, 1, 4)
+    medsam_model.eval()
 
-        medsam_model = MedSAM(
-            image_encoder=sam_model_tune.image_encoder,
-            prompt_encoder=sam_model_tune.prompt_encoder,
-            mask_decoder=sam_model_tune.mask_decoder,
-        ).to(device)
-        medsam_model.load_state_dict(torch.load("work_dir/Cascade2-multiV4/sam_model_no_pre4.pth"))
-
-        medsam_model.eval()
-
-        medsam_seg_prob = medsam_model(input_image.to(device), box_torch)
-        medsam_seg_prob = torch.sigmoid(medsam_seg_prob)
-        medsam_seg_prob = medsam_seg_prob.cpu().numpy().squeeze()
-        medsam_seg = (medsam_seg_prob > 0.5).astype(np.uint8)
+    medsam_seg_prob = medsam_model(input_image, box_tensor)
+    medsam_seg_prob = torch.sigmoid(medsam_seg_prob)
+    medsam_seg_prob = medsam_seg_prob.cpu().numpy().squeeze()
+    medsam_seg = (medsam_seg_prob > 0.5).astype(np.uint8)
     return medsam_seg
 
 
@@ -579,19 +585,25 @@ def finetune_model_predict(img_np, box_np, sam_trans, sam_model_tune, device='cu
 parser = argparse.ArgumentParser(description='run inference on testing set based on MedSAM')
 parser.add_argument('-i', '--data_path', type=str, default='./data/Test-20230630T084040Z-001/Test',
                     help='path to the data folder')
-parser.add_argument('-o', '--seg_path_root', type=str, default='./data/test_result/C2M4-5',
+parser.add_argument('-o', '--seg_path_root', type=str, default='./data/test_result/Cascade-mask4-2',
                     help='path to the segmentation folder')
-parser.add_argument('--seg_png_path', type=str, default='./data/test_result/sanity_test/C2M4-5',
+parser.add_argument('--seg_png_path', type=str, default='./data/test_result/sanity_test/Cascade-mask4-2',
                     help='path to the segmentation folder')
 parser.add_argument('--model_type', type=str, default='vit_b', help='model type')
-parser.add_argument('--device', type=str, default='cuda:1', help='device')
-parser.add_argument('-chk', '--checkpoint', type=str, default='work_dir/Cascade2-multiV4/sam_model_no_pre4.pth',
+parser.add_argument('--device', type=str, default='cuda:0', help='device')
+parser.add_argument('-chk', '--checkpoint', type=str, default='work_dir/Cascade-mask4/sam_model_no_pre1.pth',
                     help='path to the trained model')
 args = parser.parse_args()
 
 # % load MedSAM model
 device = args.device
 sam_model_tune = sam_model_registry[args.model_type](checkpoint=args.checkpoint).to(device)
+# state_dict = sam_model_tune.state_dict()
+# print("==========================names================")
+# # Print the parameter names
+# for param_name in state_dict:
+#     print(param_name)
+
 sam_trans = ResizeLongestSide(sam_model_tune.image_encoder.img_size)
 
 npz_folders = sorted(os.listdir(args.data_path))
@@ -635,7 +647,19 @@ for npz_folder in npz_folders:
                     y_max = min(H, y_max + np.random.randint(0, 20))
                     bbox = np.array([x_min, y_min, x_max, y_max])
 
-                    seg_mask = finetune_model_predict(ori_img, bbox, sam_trans, sam_model_tune, device=device)
+                    H, W = ori_img.shape[:2]
+                    img_np = ori_img.astype(np.uint8)
+
+                    resize_img = sam_trans.apply_image(img_np)
+                    resize_img_tensor = torch.as_tensor(resize_img.transpose(2, 0, 1)).to(device)
+                    input_image = sam_model_tune.preprocess(resize_img_tensor[None, :, :, :])  # (1, 3, 1024, 1024)
+
+                    box = sam_trans.apply_boxes(bbox, (H, W))
+                    box_torch = torch.as_tensor(box, dtype=torch.float, device=device)
+                    if len(box_torch.shape) == 2:
+                        box_torch = box_torch[:, None, :]  # (B, 1, 4)
+
+                    seg_mask = finetune_model_predict(input_image, box_torch, sam_model_tune, device=device)
                     sam_segs.append(seg_mask)
                     # print(seg_mask.shape, "mask shape")
                     # print(np.array(sam_segs).shape, "seg shape")

@@ -13,6 +13,8 @@ import traceback
 import numpy as np
 import scipy.ndimage
 
+np.random.seed(322)
+
 
 # visualization functions
 # source: https://github.com/facebookresearch/segment-anything/blob/main/notebooks/predictor_example.ipynb
@@ -514,13 +516,13 @@ parser = argparse.ArgumentParser(description='run inference on testing set based
 parser.add_argument('-i', '--data_path', type=str, default='./data/Test-20230630T084040Z-001/Test',
                     help='path to the data folder')
 # save the NSD . DSC result
-parser.add_argument('-o', '--seg_path_root', type=str, default='./data/test_result/ADD-5',
+parser.add_argument('-o', '--seg_path_root', type=str, default='./data/test_result/mdhq_ft-5(2)',
                     help='path to the segmentation folder')
-parser.add_argument('--seg_png_path', type=str, default='./data/test_result/sanity_test/ADD-5',
+parser.add_argument('--seg_png_path', type=str, default='./data/test_result/sanity_test/mdhq_ft-5(2)',
                     help='path to the segmentation folder')
 parser.add_argument('--model_type', type=str, default='vit_b', help='model type')
-parser.add_argument('--device', type=str, default='cuda:0', help='device')
-parser.add_argument('-chk', '--checkpoint', type=str, default='work_dir/DETR_MSC4/sam_model_no_pre4.pth',
+parser.add_argument('--device', type=str, default='cuda:1', help='device')
+parser.add_argument('-chk', '--checkpoint', type=str, default='work_dir/mdhq_ft/sam_model_no_pre4.pth',
                     help='path to the trained model')
 args = parser.parse_args()
 

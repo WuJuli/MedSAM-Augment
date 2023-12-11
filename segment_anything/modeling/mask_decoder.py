@@ -76,19 +76,19 @@ class MaskDecoder(nn.Module):
         self.num_mask_tokens = self.num_mask_tokens + 1
 
         # three conv fusion layers for obtaining HQ-Feature
-        self.compress_vit_feat = nn.Sequential(
+        self.compress_vit_feat_hf = nn.Sequential(
             nn.ConvTranspose2d(vit_dim, transformer_dim, kernel_size=2, stride=2),
             LayerNorm2d(transformer_dim),
             nn.GELU(),
             nn.ConvTranspose2d(transformer_dim, transformer_dim // 8, kernel_size=2, stride=2))
 
-        self.embedding_encoder = nn.Sequential(
+        self.embedding_encoder_hf = nn.Sequential(
             nn.ConvTranspose2d(transformer_dim, transformer_dim // 4, kernel_size=2, stride=2),
             LayerNorm2d(transformer_dim // 4),
             nn.GELU(),
             nn.ConvTranspose2d(transformer_dim // 4, transformer_dim // 8, kernel_size=2, stride=2),
         )
-        self.embedding_maskfeature = nn.Sequential(
+        self.embedding_maskfeature_hf = nn.Sequential(
             nn.Conv2d(transformer_dim // 8, transformer_dim // 4, 3, 1, 1),
             LayerNorm2d(transformer_dim // 4),
             nn.GELU(),
@@ -119,25 +119,14 @@ class MaskDecoder(nn.Module):
           torch.Tensor: batched predicted masks
           torch.Tensor: batched predictions of mask quality
         """
-        weights = [0.5, 0, 0, 0.5]
-        vit_features = [weight * emb.permute(0, 3, 1, 2) for weight, emb in zip(weights, interm_embeddings)]
-        vit_features = sum(vit_features)
-
-        cloned_image_embeddings = image_embeddings.clone().detach()
-        cloned_vit_features = vit_features.clone().detach()
-        hq_features = self.embedding_encoder(cloned_image_embeddings) + self.compress_vit_feat(cloned_vit_features)
+        vit_features = interm_embeddings[0].permute(0, 3, 1, 2)
+        hq_features = self.embedding_encoder_hf(image_embeddings) + self.compress_vit_feat_hf(vit_features)
 
         batch_len = len(image_embeddings)
         image_pe = torch.repeat_interleave(image_pe, batch_len, dim=0)
         masks = []
         iou_preds = []
-        # print("mask deocoder!!!------------------------")
-        # print(vit_features.shape, "8888")
-        # print(image_embeddings.shape)
-        # print(image_pe.shape)
-        # print(sparse_prompt_embeddings.shape)
-        # print(dense_prompt_embeddings.shape)
-        # print(len(interm_embeddings))
+
         for i_batch in range(batch_len):
             mask, iou_pred = self.predict_masks(
                 image_embeddings=image_embeddings[i_batch].unsqueeze(0),
@@ -203,7 +192,7 @@ class MaskDecoder(nn.Module):
         src = src.transpose(1, 2).view(b, c, h, w)
 
         upscaled_embedding_sam = self.output_upscaling(src)
-        upscaled_embedding_hq = self.embedding_maskfeature(upscaled_embedding_sam) + hq_features.repeat(b, 1, 1, 1)
+        upscaled_embedding_hq = self.embedding_maskfeature_hf(upscaled_embedding_sam) + hq_features.repeat(b, 1, 1, 1)
 
         hyper_in_list: List[torch.Tensor] = []
         for i in range(self.num_mask_tokens):
