@@ -11,9 +11,9 @@ from .transformer import TwoWayTransformer
 # for sam baseline
 from .sam import Sam
 
-from .image_encoder import ImageEncoderViT
+from .image_encoder import ImageEncoderViT  # the ori hq image encoder   DETR
 # from .image_encoder_ada import ImageEncoderViT  # add MultiScaleAdapter
-# from .image_encoder_DETR import ImageEncoderViT
+# from .image_encoder_detr import ImageEncoderViT  # the ori hq image encoder   DETR
 # from .image_encoder_ada_DETR import ImageEncoderViT  # the ori hq image encoder   DETR
 
 from .mask_decoder import MaskDecoder      # my version hq mask decoder
@@ -22,3 +22,5 @@ from .mask_decoder import MaskDecoder      # my version hq mask decoder
 # from .mask_decoder_ori import MaskDecoder  # the original decoder
 # from .mask_decoder_detr import MaskDecoder  # using the deformable attention
 # from .mask_decoder_DETR import MaskDecoder  # using the deformable attention
+
+# from .tiny_vit_sam import TinyViT
