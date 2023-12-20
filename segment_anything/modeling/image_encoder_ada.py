@@ -10,7 +10,7 @@ import torch.nn.functional as F
 
 from typing import Optional, Tuple, Type
 
-from .common import LayerNorm2d, MLPBlock, MultiScaleAdapterV4
+from .common import LayerNorm2d, MLPBlock, Adapter
 
 
 # This class and its supporting functions below lightly adapted from the ViTDet backbone available at: https://github.com/facebookresearch/detectron2/blob/main/detectron2/modeling/backbone/vit.py # noqa
@@ -104,20 +104,14 @@ class ImageEncoderViT(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # print(self.global_attn_indexes, 6)
         x = self.patch_embed(x)
         if self.pos_embed is not None:
             x = x + self.pos_embed
 
-        for i, blk in enumerate(self.blocks):
+        for blk in self.blocks:
             x = blk(x)
-            if i in self.global_attn_indexes:
+            if blk.window_size == 0:
                 blk.use_adapter = True
-        #
-        # for i, blk in enumerate(self.blocks):
-        #     if blk.use_adapter == True:
-        #         print(i, 7)
-            # print(blk.window_size, blk.use_adapter)
 
         x = self.neck(x.permute(0, 3, 1, 2))
 
@@ -175,7 +169,7 @@ class Block(nn.Module):
 
         # multiscale adapter
         self.use_adapter = False
-        self.msc_Adapter = MultiScaleAdapterV4(dim)
+        self.msc_Adapter = Adapter(dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         shortcut = x

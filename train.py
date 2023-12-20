@@ -191,9 +191,19 @@ class TrainMedSam:
                 box = sam_trans.apply_boxes(bbox, (H, W))
                 box_tensor = torch.as_tensor(box, dtype=torch.float, device=self.device)
 
+                for name, param in model.image_encoder.named_parameters():
+                    if "Adapter" in name or "deformable" in name:
+                        param.requires_grad = True
+                    else:
+                        param.requires_grad = False
+
+                image_embeddings = model.image_encoder(input_image)
+                # for name, param in model.mask_decoder.named_parameters():
+                #     if param.requires_grad:
+                #         print(name)
                 # Get predictioin mask
                 with torch.inference_mode():
-                    image_embeddings = model.image_encoder(input_image)
+
                     sparse_embeddings, dense_embeddings = model.prompt_encoder(
                         points=None,
                         boxes=box_tensor,
@@ -267,7 +277,7 @@ if __name__ == '__main__':
     )
     parser.add_argument('--work_dir', type=str, default='./work_dir')
     parser.add_argument('--task_name', type=str, default='test')
-    parser.add_argument('--device', type=str, default="cuda:0", help="cuda number")
+    parser.add_argument('--device', type=str, default="cuda:1", help="cuda number")
     parser.add_argument(
         "--num_epochs", type=int, required=False, default=50, help="number of epochs"
     )
