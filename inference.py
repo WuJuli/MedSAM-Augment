@@ -514,9 +514,9 @@ parser = argparse.ArgumentParser(description='run inference on testing set based
 parser.add_argument('-i', '--data_path', type=str, default='./data/Test-20230630T084040Z-001/Test',
                     help='path to the data folder')
 # save the NSD . DSC result
-parser.add_argument('-o', '--seg_path_root', type=str, default='./data/test_result/Only_Msc_235811-5(1)',
+parser.add_argument('-o', '--seg_path_root', type=str, default='./data/test_result/Only_danchidu-5(2)',
                     help='path to the segmentation folder')
-parser.add_argument('--seg_png_path', type=str, default='./data/test_result/sanity_test/Only_Msc_235811-5(1)',
+parser.add_argument('--seg_png_path', type=str, default='./data/test_result/sanity_test/Only_danchidu-5(2)',
                     help='path to the segmentation folder')
 parser.add_argument('--model_type', type=str, default='vit_b', help='model type')
 parser.add_argument('--device', type=str, default='cuda:1', help='device')
@@ -527,6 +527,7 @@ args = parser.parse_args()
 # % load MedSAM model
 device = args.device
 sam_model_tune = sam_model_registry[args.model_type](checkpoint=args.checkpoint).to(device)
+sam_model_tune.eval()
 sam_trans = ResizeLongestSide(sam_model_tune.image_encoder.img_size)
 
 npz_folders = sorted(os.listdir(args.data_path))
@@ -534,6 +535,7 @@ os.makedirs(args.seg_png_path, exist_ok=True)
 for npz_folder in npz_folders:
     # print(npz_folders, npz_folder)
     npz_data_path = join(args.data_path, npz_folder)
+    # print(npz_folder, 8)
     save_path = join(args.seg_path_root, npz_folder)
     avg_DSC = []
     avg_NSD = []
@@ -594,6 +596,7 @@ for npz_folder in npz_folders:
                 # visualize segmentation results
 
                 img_id = np.random.randint(0, len(ori_imgs))
+                print(len(ori_imgs))
                 # print(img_id,"id")
                 # show ground truth and segmentation results in two subplots
                 fig, axes = plt.subplots(1, 3, figsize=(15, 5))

@@ -13,6 +13,7 @@ from typing import Optional, Tuple, Type
 from .common import LayerNorm2d, MLPBlock, MultiScaleAdapterV4
 from .detr import DeformableTransformer
 
+
 # This class and its supporting functions below lightly adapted from the ViTDet backbone available at: https://github.com/facebookresearch/detectron2/blob/main/detectron2/modeling/backbone/vit.py # noqa
 class ImageEncoderViT(nn.Module):
     def __init__(
@@ -54,7 +55,7 @@ class ImageEncoderViT(nn.Module):
         """
         super().__init__()
         self.img_size = img_size
-
+        self.global_attn_indexes = global_attn_indexes
         self.patch_embed = PatchEmbed(
             kernel_size=(patch_size, patch_size),
             stride=(patch_size, patch_size),
@@ -117,9 +118,10 @@ class ImageEncoderViT(nn.Module):
             x = x + self.pos_embed
 
         interm_embeddings = []
-        for blk in self.blocks:
+        for i, blk in enumerate(self.blocks):
             x = blk(x)
             if blk.window_size == 0:
+                blk.use_adapter = True
                 interm_embeddings.append(x)
 
         x = self.neck(x.permute(0, 3, 1, 2))
@@ -202,10 +204,10 @@ class Block(nn.Module):
 
         x = self.norm1(x)
         x = self.attn(x)
-        x = self.msc_Adapter(x)
+        # x = self.msc_Adapter(x)
 
-        # if self.use_adapter:
-        #     x = self.msc_Adapter(x)
+        if self.use_adapter:
+            x = self.msc_Adapter(x)
 
         # Reverse window partition
         if self.window_size > 0:
