@@ -5,27 +5,23 @@ import matplotlib.pyplot as plt
 join = os.path.join
 import json
 from datetime import datetime
-import pandas as pd
+
 import numpy as np
 import monai
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
-import torchvision.transforms.functional as F
+# import torchvision.transforms.functional as F
+from torch.nn import functional as F
 from typing import Any, Iterable, Tuple, List
 from tqdm import tqdm
-from sklearn.model_selection import KFold, train_test_split
-from torch.utils.tensorboard import SummaryWriter
 
 from segment_anything import sam_model_registry
 from segment_anything.utils.transforms import ResizeLongestSide
 from torchvision.transforms.functional import resize, to_pil_image
-from utils.dataset import MedSamDataset
 
 
-# for 3D dataset
-# from utils.dataset3D import MedSamDataset
 class NpzDataset(Dataset):
     def __init__(self,
                  npz_path,
@@ -45,7 +41,7 @@ class NpzDataset(Dataset):
     def __getitem__(self, index):
         img = np.load(join(self.npz_path, self.npz_files[index]))['img']  # (256, 256, 3)
         gt = np.load(join(self.npz_path, self.npz_files[index]))['gt']  # (256, 256)
-
+        img = img.astype(np.uint8)
         resize_img = self.apply_image(img)
         resize_img_tensor = torch.as_tensor(resize_img.transpose(2, 0, 1)).to(self.device)
 
@@ -55,6 +51,7 @@ class NpzDataset(Dataset):
         y_indices, x_indices = np.where(gt > 0)
         x_min, x_max = np.min(x_indices), np.max(x_indices)
         y_min, y_max = np.min(y_indices), np.max(y_indices)
+
         # add perturbation to bounding box coordinates
         H, W = gt.shape
         x_min = max(0, x_min - np.random.randint(0, 20))
@@ -75,6 +72,8 @@ class NpzDataset(Dataset):
 
     def preprocess(self, x: torch.Tensor) -> torch.Tensor:
         """Normalize pixel values and pad to a square input."""
+        # print("=====================in preprocess")
+        # print(x.shape, "p1")
         # Normalize colors
         x = (x - self.pixel_mean) / self.pixel_std
 
@@ -83,6 +82,7 @@ class NpzDataset(Dataset):
         padh = 1024 - h
         padw = 1024 - w
         x = F.pad(x, (0, padw, 0, padh))
+        # print(x.shape, "p2")
         return x
 
     @staticmethod
@@ -161,6 +161,14 @@ class TrainMedSam:
 
         return sam_model
 
+    def postprocess_masks(
+            self,
+            masks: torch.Tensor,
+            original_size: Tuple[int, ...],
+    ) -> torch.Tensor:
+        masks = F.interpolate(masks, original_size, mode="bilinear", align_corners=False)
+        return masks
+
     def train(self, model, train_loader: Iterable, logg=True):
         """Train the model"""
         sam_trans = ResizeLongestSide(model.image_encoder.img_size)
@@ -180,29 +188,14 @@ class TrainMedSam:
                 # process image
                 input_image = input_image.to(self.device)
                 mask = mask.to(self.device)
+                # print(input_image.shape1024, mask.shape512, 777)
 
                 H, W = mask.shape[-2], mask.shape[-1]
                 box = sam_trans.apply_boxes(bbox, (H, W))
                 box_tensor = torch.as_tensor(box, dtype=torch.float, device=self.device)
 
-                for name, param in model.image_encoder.named_parameters():
-                    if "Adapter" in name or "deformable" in name:
-                        param.requires_grad = True
-                    else:
-                        param.requires_grad = False
-                # for name, param in model.mask_decoder.named_parameters():
-                #     if "hf" in name:
-                #         param.requires_grad = True
-                #     else:
-                #         param.requires_grad = False
-                        
-                image_embeddings, interm_embeddings = model.image_encoder(input_image)
-
-                # for name, param in model.mask_decoder.named_parameters():
-                #     if param.requires_grad:
-                #         print(name)
-                # Get predictioin mask
                 with torch.inference_mode():
+                    image_embeddings = model.image_encoder(input_image)
                     sparse_embeddings, dense_embeddings = model.prompt_encoder(
                         points=None,
                         boxes=box_tensor,
@@ -215,8 +208,11 @@ class TrainMedSam:
                     sparse_prompt_embeddings=sparse_embeddings,  # (B, 2, 256)
                     dense_prompt_embeddings=dense_embeddings,  # (B, 256, 64, 64)
                     multimask_output=False,
-                    hq_token_only=True,
-                    interm_embeddings=interm_embeddings,
+                )
+
+                mask_predictions = self.postprocess_masks(
+                    mask_predictions,
+                    original_size=mask.shape[-2:]
                 )
 
                 # Calculate loss
@@ -273,12 +269,12 @@ if __name__ == '__main__':
     parser.add_argument(
         "--npz_path",
         type=str,
-        default="data/testTrain",
+        default="data/SenNet/kidney_1_dense_512_npz",
         help="the path to original .npz files"
     )
     parser.add_argument('--work_dir', type=str, default='./work_dir')
-    parser.add_argument('--task_name', type=str, default='test')
-    parser.add_argument('--device', type=str, default="cuda:1", help="cuda number")
+    parser.add_argument('--task_name', type=str, default='test_sen')
+    parser.add_argument('--device', type=str, default="cuda:0", help="cuda number")
     parser.add_argument(
         "--num_epochs", type=int, required=False, default=50, help="number of epochs"
     )
@@ -286,7 +282,7 @@ if __name__ == '__main__':
         "--lr", type=float, required=False, default=1e-5, help="learning rate"
     )
     parser.add_argument(
-        "--batch_size", type=int, required=False, default=1, help="batch size"
+        "--batch_size", type=int, required=False, default=2, help="batch size"
     )
     parser.add_argument("--model_type", default="vit_b", type=str, required=False)
     parser.add_argument(

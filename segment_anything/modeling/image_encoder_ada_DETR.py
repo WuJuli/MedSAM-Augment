@@ -83,6 +83,7 @@ class ImageEncoderViT(nn.Module):
                 rel_pos_zero_init=rel_pos_zero_init,
                 window_size=window_size if i not in global_attn_indexes else 0,
                 input_size=(img_size // patch_size, img_size // patch_size),
+                use_adapter=True if i in global_attn_indexes else False
             )
             self.blocks.append(block)
 
@@ -105,7 +106,7 @@ class ImageEncoderViT(nn.Module):
         )
         self.deformable_model = DeformableTransformer(d_model=768, nhead=12,
                                                       num_encoder_layers=1, num_decoder_layers=6, dim_feedforward=1024,
-                                                      dropout=0.1,
+                                                      dropout=0.0,
                                                       activation="relu", return_intermediate_dec=False,
                                                       num_feature_levels=4, dec_n_points=4, enc_n_points=4,
                                                       two_stage=False, two_stage_num_proposals=300)
@@ -121,7 +122,6 @@ class ImageEncoderViT(nn.Module):
         for i, blk in enumerate(self.blocks):
             x = blk(x)
             if blk.window_size == 0:
-                blk.use_adapter = True
                 interm_embeddings.append(x)
 
         x = self.neck(x.permute(0, 3, 1, 2))
@@ -175,6 +175,7 @@ class Block(nn.Module):
                 positional parameter size.
         """
         super().__init__()
+
         self.norm1 = norm_layer(dim)
         self.attn = Attention(
             dim,
@@ -191,8 +192,10 @@ class Block(nn.Module):
         self.window_size = window_size
 
         # multiscale adapter
-        self.use_adapter = False
-        self.msc_Adapter = MultiScaleAdapterV4(dim)
+        if use_adapter:
+            self.msc_Adapter = MultiScaleAdapterV4(dim)
+        else:
+            self.msc_Adapter = None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         shortcut = x
@@ -204,9 +207,8 @@ class Block(nn.Module):
 
         x = self.norm1(x)
         x = self.attn(x)
-        # x = self.msc_Adapter(x)
 
-        if self.use_adapter:
+        if self.msc_Adapter is not None:
             x = self.msc_Adapter(x)
 
         # Reverse window partition
@@ -214,7 +216,6 @@ class Block(nn.Module):
             x = window_unpartition(x, self.window_size, pad_hw, (H, W))
 
         x = shortcut + x
-
         x = x + self.mlp(self.norm2(x))
 
         return x

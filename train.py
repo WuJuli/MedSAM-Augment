@@ -40,7 +40,7 @@ class NpzDataset(Dataset):
     def __getitem__(self, index):
         img = np.load(join(self.npz_path, self.npz_files[index]))['img']  # (256, 256, 3)
         gt = np.load(join(self.npz_path, self.npz_files[index]))['gt']  # (256, 256)
-        img = img.astype(np.uint8)
+
         resize_img = self.apply_image(img)
         resize_img_tensor = torch.as_tensor(resize_img.transpose(2, 0, 1)).to(self.device)
 
@@ -48,16 +48,8 @@ class NpzDataset(Dataset):
         assert input_image.shape == (1, 3, 1024, 1024), 'input image should be resized to 1024*1024'
 
         y_indices, x_indices = np.where(gt > 0)
-        if len(x_indices) > 0:
-            x_min, x_max = np.min(x_indices), np.max(x_indices)
-        else:
-            x_min, x_max = 0, 0
-
-        if len(y_indices) > 0:
-            y_min, y_max = np.min(y_indices), np.max(y_indices)
-        else:
-            y_min, y_max = 0, 0
-
+        x_min, x_max = np.min(x_indices), np.max(x_indices)
+        y_min, y_max = np.min(y_indices), np.max(y_indices)
         # add perturbation to bounding box coordinates
         H, W = gt.shape
         x_min = max(0, x_min - np.random.randint(0, 20))
@@ -78,8 +70,6 @@ class NpzDataset(Dataset):
 
     def preprocess(self, x: torch.Tensor) -> torch.Tensor:
         """Normalize pixel values and pad to a square input."""
-        # print("=====================in preprocess")
-        # print(x.shape, "p1")
         # Normalize colors
         x = (x - self.pixel_mean) / self.pixel_std
 
@@ -88,7 +78,6 @@ class NpzDataset(Dataset):
         padh = 1024 - h
         padw = 1024 - w
         x = F.pad(x, (0, padw, 0, padh))
-        # print(x.shape, "p2")
         return x
 
     @staticmethod
@@ -198,12 +187,11 @@ class TrainMedSam:
                         param.requires_grad = False
 
                 image_embeddings = model.image_encoder(input_image)
-                # for name, param in model.mask_decoder.named_parameters():
-                #     if param.requires_grad:
-                #         print(name)
+                for name, param in model.image_encoder.named_parameters():
+                    if param.requires_grad:
+                        print(name)
                 # Get predictioin mask
                 with torch.inference_mode():
-
                     sparse_embeddings, dense_embeddings = model.prompt_encoder(
                         points=None,
                         boxes=box_tensor,
@@ -276,7 +264,7 @@ if __name__ == '__main__':
         help="the path to original .npz files"
     )
     parser.add_argument('--work_dir', type=str, default='./work_dir')
-    parser.add_argument('--task_name', type=str, default='test')
+    parser.add_argument('--task_name', type=str, default='TEST')
     parser.add_argument('--device', type=str, default="cuda:1", help="cuda number")
     parser.add_argument(
         "--num_epochs", type=int, required=False, default=50, help="number of epochs"
