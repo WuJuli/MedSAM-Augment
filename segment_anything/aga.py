@@ -52,20 +52,20 @@ class AgentAttention(nn.Module):
         pool_size = int(agent_num ** 0.5)
         self.pool = nn.AdaptiveAvgPool2d(output_size=(pool_size, pool_size))
 
-    def forward(self, q: Tensor, k: Tensor, v: Tensor) -> Tensor:
+    def forward(self, x, mask=None):
         """
         Args:
             x: input features with shape of (num_windows*B, N, C)
             mask: (0/-inf) mask with shape of (num_windows, Wh*Ww, Wh*Ww) or None
-            :param q:
-            :param k:
-            :param v:
         """
-        b, n, c = q.shape
+        b, n, c = x.shape
         h = int(n ** 0.5)
         w = int(n ** 0.5)
         num_heads = self.num_heads
         head_dim = c // num_heads
+        qkv = self.qkv(x).reshape(b, n, 3, c).permute(2, 0, 1, 3)
+        q, k, v = qkv[0], qkv[1], qkv[2]  # make torchscript happy (cannot use tensor as tuple)
+        # q, k, v: b, n, c
 
         agent_tokens = self.pool(q.reshape(b, h, w, c).permute(0, 3, 1, 2)).reshape(b, c, -1).permute(0, 2, 1)
         q = q.reshape(b, n, num_heads, head_dim).permute(0, 2, 1, 3)
@@ -127,6 +127,6 @@ A = AgentAttention(
     attn_drop=0.,
     proj_drop=0.,
     agent_num=49)
-output = A(q=x, k=y, v=z)
+output = A(x)
 
 print(output.shape, "output")

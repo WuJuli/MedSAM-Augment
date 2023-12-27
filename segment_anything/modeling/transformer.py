@@ -101,7 +101,9 @@ class TwoWayTransformer(nn.Module):
         # Apply the final attenion layer from the points to the image
         q = queries + point_embedding
         k = keys + image_pe
+        # print(q.shape, k.shape, keys.shape, "[1, 7, 256][1, 4096, 256][1, 4096, 256]")
         attn_out = self.final_attn_token_to_image(q=q, k=k, v=keys)
+        # print(attn_out.shape, "torch.Size([1, 7, 256]) ")
         queries = queries + attn_out
         queries = self.norm_final_attn(queries)
 
@@ -132,7 +134,16 @@ class TwoWayAttentionBlock(nn.Module):
           skip_first_layer_pe (bool): skip the PE on the first layer
         """
         super().__init__()
-        self.self_attn = Attention(embedding_dim, num_heads)
+        # self.self_attn = Attention(embedding_dim, num_heads)
+        self.self_attn = AgentAttention(
+            dim=embedding_dim,
+            window_size=(7, 7),
+            num_heads=4,
+            qkv_bias=True,
+            qk_scale=None,
+            attn_drop=0.,
+            proj_drop=0.,
+            agent_num=49)
         self.norm1 = nn.LayerNorm(embedding_dim)
 
         self.cross_attn_token_to_image = Attention(
@@ -155,17 +166,26 @@ class TwoWayAttentionBlock(nn.Module):
     ) -> Tuple[Tensor, Tensor]:
         # Self attention block
         if self.skip_first_layer_pe:
-            queries = self.self_attn(q=queries, k=queries, v=queries)
+            # print(queries.shape, "[1, 7, 256]")
+            queries_a = torch.repeat_interleave(queries, 7, dim=1)
+            output = self.self_attn(q=queries_a, k=queries_a, v=queries_a)
+            queries = output[:, 0:7, :]
         else:
             q = queries + query_pe
-            attn_out = self.self_attn(q=q, k=q, v=queries)
+            q_a = torch.repeat_interleave(q, 7, dim=1)
+            queries_a = torch.repeat_interleave(queries, 7, dim=1)
+            # print(q.shape, q.shape, queries.shape, "torch.Size([1, 7, 256]) ")
+            out = self.self_attn(q=q_a, k=q_a, v=queries_a)
+            attn_out = out[:, 0:7, :]
             queries = queries + attn_out
         queries = self.norm1(queries)
 
         # Cross attention block, tokens attending to image embedding
         q = queries + query_pe
         k = keys + key_pe
+        # print(q.shape, k.shape, keys.shape, "[1, 7, 256][1, 4096, 256][1, 4096, 256])")
         attn_out = self.cross_attn_token_to_image(q=q, k=k, v=keys)
+        # print(attn_out.shape, "[1, 7, 256]")
         queries = queries + attn_out
         queries = self.norm2(queries)
 
@@ -177,7 +197,9 @@ class TwoWayAttentionBlock(nn.Module):
         # Cross attention block, image embedding attending to tokens
         q = queries + query_pe
         k = keys + key_pe
+        # print(k.shape, q.shape, queries.shape, "[1, 4096, 256][1, 7, 256][1, 7, 256]")
         attn_out = self.cross_attn_image_to_token(q=k, k=q, v=queries)
+        # print(attn_out.shape, "torch.Size([1, 4096, 256])")
         keys = keys + attn_out
         keys = self.norm4(keys)
 
@@ -218,6 +240,7 @@ class Attention(nn.Module):
         return x.reshape(b, n_tokens, n_heads * c_per_head)  # B x N_tokens x C
 
     def forward(self, q: Tensor, k: Tensor, v: Tensor) -> Tensor:
+        # print(q.shape, k.shape, v.shape)
         # Input projections
         q = self.q_proj(q)
         k = self.k_proj(k)
@@ -238,7 +261,7 @@ class Attention(nn.Module):
         out = attn @ v
         out = self._recombine_heads(out)
         out = self.out_proj(out)
-
+        # print(out.shape, "oo")
         return out
 
 
@@ -287,20 +310,20 @@ class AgentAttention(nn.Module):
         pool_size = int(agent_num ** 0.5)
         self.pool = nn.AdaptiveAvgPool2d(output_size=(pool_size, pool_size))
 
-    def forward(self, x, mask=None):
+    def forward(self, q: Tensor, k: Tensor, v: Tensor) -> Tensor:
         """
         Args:
             x: input features with shape of (num_windows*B, N, C)
             mask: (0/-inf) mask with shape of (num_windows, Wh*Ww, Wh*Ww) or None
+            :param q:
+            :param k:
+            :param v:
         """
-        b, n, c = x.shape
+        b, n, c = q.shape
         h = int(n ** 0.5)
         w = int(n ** 0.5)
         num_heads = self.num_heads
         head_dim = c // num_heads
-        qkv = self.qkv(x).reshape(b, n, 3, c).permute(2, 0, 1, 3)
-        q, k, v = qkv[0], qkv[1], qkv[2]  # make torchscript happy (cannot use tensor as tuple)
-        # q, k, v: b, n, c
 
         agent_tokens = self.pool(q.reshape(b, h, w, c).permute(0, 3, 1, 2)).reshape(b, c, -1).permute(0, 2, 1)
         q = q.reshape(b, n, num_heads, head_dim).permute(0, 2, 1, 3)
